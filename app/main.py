@@ -12,7 +12,7 @@ from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, text
 from typing import List
 import datetime
 from . import models, schemas, database, security
@@ -149,7 +149,7 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
 # GESTIÓN DE MESAS
 # ==========================================
 @app.post("/mesas/", response_model=schemas.Mesa)
-def create_mesa(mesa: schemas.MesaCreate, db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(security.RoleChecker(["Administrador", "Maitre"]))):
+def create_mesa(mesa: schemas.MesaCreate, db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(security.RoleChecker(["Maitre"]))):
     db_mesa = models.Mesa(**mesa.dict())
     db.add(db_mesa)
     db.commit()
@@ -159,6 +159,15 @@ def create_mesa(mesa: schemas.MesaCreate, db: Session = Depends(database.get_db)
 @app.get("/mesas/")
 def get_mesas(db: Session = Depends(database.get_db)):
     return db.query(models.Mesa).order_by(models.Mesa.id).all()
+
+@app.delete("/mesas/{mesa_id}")
+def delete_mesa(mesa_id: int, db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(security.RoleChecker(["Maitre"]))):
+    db_mesa = db.query(models.Mesa).filter(models.Mesa.id == mesa_id).first()
+    if not db_mesa:
+        raise HTTPException(status_code=404, detail="Mesa no encontrada")
+    db.delete(db_mesa)
+    db.commit()
+    return {"status": "ok", "message": "Mesa eliminada"}
 
 @app.get("/platos/")
 def get_platos(db: Session = Depends(database.get_db)):
@@ -179,7 +188,7 @@ def update_mesa_estado(mesa_id: int, estado: str, db: Session = Depends(database
     return {"status": "ok", "mesa_id": mesa_id, "nuevo_estado": estado}
 
 @app.put("/mesas/{mesa_id}", response_model=schemas.Mesa)
-def update_mesa(mesa_id: int, mesa_data: schemas.MesaCreate, db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(security.RoleChecker(["Administrador", "Maitre"]))):
+def update_mesa(mesa_id: int, mesa_data: schemas.MesaCreate, db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(security.RoleChecker(["Maitre"]))):
     db_mesa = db.query(models.Mesa).filter(models.Mesa.id == mesa_id).first()
     if not db_mesa:
         raise HTTPException(status_code=404, detail="Mesa no encontrada")
@@ -226,6 +235,13 @@ async def create_pedido(pedido: schemas.PedidoCreate, background_tasks: Backgrou
     if not db_mesa:
         raise HTTPException(status_code=404, detail="Mesa no encontrada")
         
+    # Validación de Cupo
+    if pedido.personas > db_mesa.sillas:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Excede capacidad. Mesa {pedido.mesa_id} solo tiene {db_mesa.sillas} sillas. Busque una mesa más grande."
+        )
+
     # Cambiamos estado de la mesa a Ocupada
     db_mesa.estado = "Ocupada"
     
@@ -311,6 +327,44 @@ def get_all_pedidos_detallados(db: Session = Depends(database.get_db), current_u
             "items": items
         })
     return resultado
+
+@app.get("/reportes/ventas")
+def reportes_ventas(periodo: str = "dia", db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(security.RoleChecker(["Administrador"]))):
+    trunc_param = 'day'
+    if periodo == 'semana': trunc_param = 'week'
+    elif periodo == 'mes': trunc_param = 'month'
+    
+    ventas = db.query(
+        func.date_trunc(trunc_param, models.Pedido.fecha).label("fecha_t"),
+        func.sum(models.Pedido.total).label("total")
+    ).group_by(text("fecha_t")).order_by(text("fecha_t")).all()
+    
+    return [{"fecha": str(v.fecha_t), "total": float(v.total)} for v in ventas]
+
+@app.get("/reportes/reservaciones")
+def reportes_reservaciones(periodo: str = "dia", db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(security.RoleChecker(["Administrador"]))):
+    trunc_param = 'day'
+    if periodo == 'semana': trunc_param = 'week'
+    elif periodo == 'mes': trunc_param = 'month'
+    
+    reservas = db.query(
+        func.date_trunc(trunc_param, models.Reservacion.inicio).label("fecha_t"),
+        func.count(models.Reservacion.id).label("cantidad")
+    ).group_by(text("fecha_t")).order_by(text("fecha_t")).all()
+    
+    return [{"fecha": str(r.fecha_t), "cantidad": r.cantidad} for r in reservas]
+
+@app.get("/reportes/top-platos")
+def reportes_top_platos(db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(security.RoleChecker(["Administrador"]))):
+    top = db.query(
+        models.Plato.nombre,
+        func.sum(models.Orden.cantidad).label("total_pedido")
+    ).join(models.Orden, models.Orden.plato_id == models.Plato.id)\
+     .group_by(models.Plato.nombre)\
+     .order_by(text("total_pedido DESC"))\
+     .limit(5).all()
+     
+    return [{"plato": t.nombre, "cantidad": int(t.total_pedido)} for t in top]
 
 # ==========================================
 # HISTORIAL DE CLIENTES

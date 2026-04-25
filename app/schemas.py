@@ -63,6 +63,7 @@ class PedidoCreate(BaseModel):
     cliente_id: int
     mesero_id: int
     mesa_id: int
+    personas: int
     ordenes: List[OrdenBase]
 
 class Pedido(BaseModel):

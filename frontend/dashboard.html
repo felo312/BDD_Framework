@@ -40,6 +40,10 @@
                     <i class="ph ph-users"></i>
                     <span>Empleados</span>
                 </button>
+                <button class="nav-btn" data-target="view-clientes" id="nav-clientes">
+                    <i class="ph ph-address-book"></i>
+                    <span>Clientes</span>
+                </button>
             </nav>
 
             <div class="sidebar-footer">
@@ -60,26 +64,58 @@
         <main class="main-content">
             <!-- View: Reportes -->
             <section id="view-reportes" class="view-section active">
-                <header class="section-header">
-                    <h1>Inteligencia de Negocio</h1>
-                    <p>Resumen histórico de ingresos y rendimiento.</p>
+                <header class="section-header" style="display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <h1>Inteligencia de Negocio</h1>
+                        <p>Resumen histórico de ingresos y rendimiento.</p>
+                    </div>
+                    <div class="input-group" style="width:auto;">
+                        <select id="select-periodo-reporte" class="glass-input" onchange="window.loadReportes()">
+                            <option value="dia">Por Día</option>
+                            <option value="semana">Por Semana</option>
+                            <option value="mes">Por Mes</option>
+                        </select>
+                    </div>
                 </header>
                 <div class="stats-grid">
                     <div class="stat-card glass-panel">
                         <div class="stat-icon" style="color: var(--accent); background: rgba(16, 185, 129, 0.1);"><i class="ph ph-currency-dollar"></i></div>
                         <div class="stat-details">
-                            <h3>Ingresos Totales</h3>
-                            <p id="stat-ingresos">$0.00</p>
+                            <h3>Ventas en Periodo</h3>
+                            <p id="stat-ingresos">$0</p>
                         </div>
                     </div>
                     <div class="stat-card glass-panel">
                         <div class="stat-icon" style="color: var(--primary); background: rgba(59, 130, 246, 0.1);"><i class="ph ph-receipt"></i></div>
                         <div class="stat-details">
-                            <h3>Pedidos Históricos</h3>
+                            <h3>Reservas en Periodo</h3>
                             <p id="stat-pedidos">0</p>
                         </div>
                     </div>
+                    <div class="stat-card glass-panel">
+                        <div class="stat-icon" style="color: var(--warning); background: rgba(245, 158, 11, 0.1);"><i class="ph ph-bank"></i></div>
+                        <div class="stat-details">
+                            <h3>Ingresos Históricos</h3>
+                            <p id="stat-ingresos-historicos">$0</p>
+                        </div>
+                    </div>
                 </div>
+
+                <div style="display:grid; grid-template-columns: 2fr 1fr; gap:24px; margin-top:24px;">
+                    <div class="chart-container glass-panel">
+                        <h3 style="margin-bottom:20px;">Top 5 Platos más Vendidos</h3>
+                        <div id="top-platos-list" style="display:flex; flex-direction:column; gap:12px;">
+                            <!-- Top platos inyectados -->
+                        </div>
+                    </div>
+                    <div class="chart-container glass-panel">
+                        <h3 style="margin-bottom:20px;">Frecuencia de Ventas</h3>
+                        <div id="chart-area" class="simple-chart" style="height:150px; display:flex; align-items:flex-end; gap:5px;">
+                            <!-- Bars injected -->
+                        </div>
+                    </div>
+                </div>
+
                 <div class="chart-container glass-panel" style="margin-top:24px;">
                     <h3 style="margin-bottom:20px;">Historial Detallado de Pedidos</h3>
                     <div class="table-container">
@@ -103,9 +139,12 @@
 
             <!-- View: Mesas -->
             <section id="view-mesas" class="view-section">
-                <header class="section-header">
-                    <h1>Gestión de Mesas</h1>
-                    <p>Control visual del estado de las mesas.</p>
+                <header class="section-header" style="display:flex; justify-content:space-between; align-items:flex-end;">
+                    <div>
+                        <h1>Gestión de Mesas</h1>
+                        <p>Control visual del estado de las mesas.</p>
+                    </div>
+                    <button id="btnNuevaMesa" class="submit-btn" style="width:auto; padding:10px 20px; display:none;" onclick="window.crearMesa()"><i class="ph ph-plus"></i> Nueva Mesa</button>
                 </header>
                 <div class="mesas-grid" id="mesasGrid">
                     <!-- Mesas inyectadas -->
@@ -121,18 +160,25 @@
                 <div class="pedido-layout">
                     <div class="pedido-form glass-panel">
                         <form id="formNuevoPedido">
-                            <div class="input-group">
-                                <label>Mesa Asignada</label>
-                                <select id="select-mesa" required class="glass-input">
-                                    <option value="">Seleccione una mesa...</option>
-                                </select>
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px;">
+                                <div class="input-group">
+                                    <label>Mesa Asignada</label>
+                                    <select id="select-mesa" required class="glass-input">
+                                        <option value="">Seleccione una mesa...</option>
+                                    </select>
+                                </div>
+                                <div class="input-group">
+                                    <label>Personas</label>
+                                    <input type="number" id="input-personas" class="glass-input" value="1" min="1" required>
+                                </div>
                             </div>
                             <div class="input-group">
                                 <label>Plato</label>
                                 <select id="select-plato" class="glass-input">
-                                    <option value="1">Empanadas ($5.00)</option>
-                                    <option value="2">Churrasco ($15.00)</option>
-                                    <option value="3">Tiramisú ($6.00)</option>
+                                    <optgroup label="Entradas" id="opt-entradas"></optgroup>
+                                    <optgroup label="Platos Fuertes" id="opt-fuertes"></optgroup>
+                                    <optgroup label="Postres" id="opt-postres"></optgroup>
+                                    <optgroup label="Bebidas" id="opt-bebidas"></optgroup>
                                 </select>
                             </div>
                             <button type="button" class="btn-secondary" id="btnAddPlato">
@@ -171,6 +217,23 @@
                             <!-- Empleados inyectados -->
                         </tbody>
                     </table>
+                </div>
+            </section>
+
+            <!-- View: Clientes -->
+            <section id="view-clientes" class="view-section">
+                <header class="section-header">
+                    <h1>Historial de Clientes</h1>
+                    <p>Seguimiento de consumos previos y personalización.</p>
+                </header>
+                <div class="glass-panel" style="padding:30px; border-radius:16px;">
+                    <div style="display:flex; gap:10px; margin-bottom:30px;">
+                        <input type="number" id="input-search-cliente" class="glass-input" placeholder="Ingrese ID del Cliente (ej: 1)">
+                        <button class="submit-btn" style="width:auto; padding:0 20px;" onclick="window.buscarHistorialCliente()">Consultar Historial</button>
+                    </div>
+                    <div id="clienteHistorialResult">
+                        <!-- Resultados inyectados -->
+                    </div>
                 </div>
             </section>
 

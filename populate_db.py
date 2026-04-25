@@ -6,23 +6,34 @@ def populate():
     db = database.SessionLocal()
 
     # 1. Crear Tipos
-    tipos = [
-        models.TipoPlato(nombre="Entrada"),
-        models.TipoPlato(nombre="Plato Fuerte"),
-        models.TipoPlato(nombre="Postre")
-    ]
-    for t in tipos:
-        if not db.query(models.TipoPlato).filter_by(nombre=t.nombre).first():
-            db.add(t)
+    tipos_nombres = ["Entrada", "Plato Fuerte", "Postre", "Bebida"]
+    for nombre in tipos_nombres:
+        if not db.query(models.TipoPlato).filter_by(nombre=nombre).first():
+            db.add(models.TipoPlato(nombre=nombre))
     db.commit()
     
-    tipos_db = db.query(models.TipoPlato).all()
+    tipos_map = {t.nombre: t.id for t in db.query(models.TipoPlato).all()}
 
-    # 2. Crear Platos
+    # 2. Crear Platos Colombianos
     platos_data = [
-        {"nombre": "Empanadas", "descripcion": "Empanadas de carne", "tiempo": timedelta(minutes=10), "precio": 5.0, "tipo_id": tipos_db[0].id},
-        {"nombre": "Churrasco", "descripcion": "Carne asada con papas", "tiempo": timedelta(minutes=25), "precio": 15.0, "tipo_id": tipos_db[1].id},
-        {"nombre": "Tiramisú", "descripcion": "Postre de café", "tiempo": timedelta(minutes=5), "precio": 6.0, "tipo_id": tipos_db[2].id}
+        # Entradas
+        {"nombre": "Patacones con Hogao", "descripcion": "Plátano verde frito con salsa de tomate y cebolla", "tiempo": timedelta(minutes=12), "precio": 12000, "tipo_id": tipos_map["Entrada"]},
+        {"nombre": "Chicharrón con Arepa", "descripcion": "Cerdo crocante con arepa de maíz", "tiempo": timedelta(minutes=15), "precio": 18000, "tipo_id": tipos_map["Entrada"]},
+        {"nombre": "Empanadas de Pipián", "descripcion": "Empanadas típicas del Cauca", "tiempo": timedelta(minutes=10), "precio": 10000, "tipo_id": tipos_map["Entrada"]},
+        
+        # Platos Fuertes
+        {"nombre": "Bandeja Paisa", "descripcion": "Frijoles, arroz, carne, huevo, chicharrón, aguacate y arepa", "tiempo": timedelta(minutes=30), "precio": 45000, "tipo_id": tipos_map["Plato Fuerte"]},
+        {"nombre": "Ajiaco Santafereño", "descripcion": "Sopa de pollo con tres tipos de papas y guascas", "tiempo": timedelta(minutes=25), "precio": 38000, "tipo_id": tipos_map["Plato Fuerte"]},
+        {"nombre": "Lechona Tolimense", "descripcion": "Cerdo relleno de arroz y arveja", "tiempo": timedelta(minutes=20), "precio": 35000, "tipo_id": tipos_map["Plato Fuerte"]},
+        
+        # Postres
+        {"nombre": "Brevas con Arequipe", "descripcion": "Higos en almíbar con dulce de leche", "tiempo": timedelta(minutes=5), "precio": 12000, "tipo_id": tipos_map["Postre"]},
+        {"nombre": "Postre de Natas", "descripcion": "Postre tradicional a base de leche y huevos", "tiempo": timedelta(minutes=5), "precio": 14000, "tipo_id": tipos_map["Postre"]},
+        
+        # Bebidas
+        {"nombre": "Limonada de Coco", "descripcion": "Refrescante limonada con crema de coco", "tiempo": timedelta(minutes=8), "precio": 15000, "tipo_id": tipos_map["Bebida"]},
+        {"nombre": "Refajo", "descripcion": "Mezcla de cerveza y gaseosa Colombiana", "tiempo": timedelta(minutes=3), "precio": 10000, "tipo_id": tipos_map["Bebida"]},
+        {"nombre": "Jugo de Lulo", "descripcion": "Jugo natural de fruta exótica", "tiempo": timedelta(minutes=5), "precio": 9000, "tipo_id": tipos_map["Bebida"]}
     ]
     for p in platos_data:
         if not db.query(models.Plato).filter_by(nombre=p["nombre"]).first():

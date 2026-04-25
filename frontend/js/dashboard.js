@@ -26,7 +26,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!isAdmin) document.getElementById('nav-reportes').style.display = 'none';
     if (!isAdmin) document.getElementById('nav-empleados').style.display = 'none';
     if (!isMesero) document.getElementById('nav-pedidos').style.display = 'none';
-    if (!isAdmin && !isMaitre && !isMesero) document.getElementById('nav-mesas').style.display = 'none';
+    // Admin ya no ve mesas, Maitre y Mesero sí (Maitre las gestiona, Mesero las usa)
+    if (!isMaitre && !isMesero) document.getElementById('nav-mesas').style.display = 'none';
+    if (!isAdmin && !isMaitre) document.getElementById('nav-clientes').style.display = 'none';
+
+    // Botón nueva mesa solo para Maitre
+    if (isMaitre) document.getElementById('btnNuevaMesa').style.display = 'block';
 
     // ==========================================
     // NAVEGACIÓN SPA
@@ -84,11 +89,67 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 1. REPORTES
     async function loadReportes() {
-        const data = await fetchAPI('/reportes/dashboard');
-        document.getElementById('stat-ingresos').textContent = formatCOP(data.ingresos_totales);
-        document.getElementById('stat-pedidos').textContent = data.total_historico_pedidos;
+        const periodo = document.getElementById('select-periodo-reporte')?.value || 'dia';
+        
+        // Cargar Ventas y Reservas por Periodo
+        let ventasData = [];
+        let reservasData = [];
+        try {
+            ventasData = await fetchAPI(`/reportes/ventas?periodo=${periodo}`);
+            reservasData = await fetchAPI(`/reportes/reservaciones?periodo=${periodo}`);
+        } catch (e) {
+            console.error("Error cargando métricas de periodo:", e);
+        }
+        
+        const totalVentasPeriodo = ventasData.reduce((sum, v) => sum + v.total, 0);
+        const totalReservasPeriodo = reservasData.reduce((sum, r) => sum + r.cantidad, 0);
 
-        // Cargar detalles de pedidos para el Admin
+        document.getElementById('stat-ingresos').textContent = formatCOP(totalVentasPeriodo);
+        document.getElementById('stat-pedidos').textContent = totalReservasPeriodo;
+
+        // Lifetime metrics
+        const dashData = await fetchAPI('/reportes/dashboard');
+        document.getElementById('stat-ingresos-historicos').textContent = formatCOP(dashData.ingresos_totales);
+
+        // Cargar Top Platos
+        const topPlatos = await fetchAPI('/reportes/top-platos');
+        const topList = document.getElementById('top-platos-list');
+        if (topList) {
+            topList.innerHTML = '';
+            topPlatos.forEach((item, idx) => {
+                const row = document.createElement('div');
+                row.style = "display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.05); padding:10px; border-radius:8px;";
+                row.innerHTML = `
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <span style="font-weight:700; color:var(--primary)">#${idx + 1}</span>
+                        <span>${item.plato}</span>
+                    </div>
+                    <span style="font-weight:600;">${item.cantidad} pedidos</span>
+                `;
+                topList.appendChild(row);
+            });
+        }
+
+        // Renderizar gráfica de ventas
+        const chartArea = document.getElementById('chart-area');
+        if (chartArea) {
+            chartArea.innerHTML = '';
+            if (ventasData.length > 0) {
+                const maxVenta = Math.max(...ventasData.map(v => v.total));
+                ventasData.forEach(item => {
+                    const height = (item.total / maxVenta) * 100;
+                    const bar = document.createElement('div');
+                    bar.className = 'bar';
+                    bar.style.height = `${height}%`;
+                    bar.style.width = '30px';
+                    bar.style.background = 'var(--primary)';
+                    bar.innerHTML = `<span style="font-size:10px; transform: rotate(-90deg) translate(-20px, 0); white-space:nowrap;">${item.fecha.split(' ')[0]}</span>`;
+                    chartArea.appendChild(bar);
+                });
+            }
+        }
+
+        // Cargar Historial Detallado
         try {
             const detallados = await fetchAPI('/reportes/pedidos/detallados');
             const tbody = document.getElementById('detalladosTableBody');
@@ -107,29 +168,52 @@ document.addEventListener('DOMContentLoaded', () => {
                     tbody.appendChild(tr);
                 });
             }
-        } catch (e) { console.error("Error cargando detalles:", e); }
-
-        // Renderizar gráfica (si existe el contenedor)
-        const chartArea = document.getElementById('chart-area');
-        if (chartArea) {
-            chartArea.innerHTML = '';
-            if (data.frecuencia_consumo && data.frecuencia_consumo.length > 0) {
-                const maxPedidos = Math.max(...data.frecuencia_consumo.map(d => d.pedidos));
-                data.frecuencia_consumo.forEach(item => {
-                    const height = (item.pedidos / maxPedidos) * 100;
-                    const bar = document.createElement('div');
-                    bar.className = 'bar';
-                    bar.style.height = `${height}%`;
-                    bar.innerHTML = `<span>${item.fecha.split('-').slice(1).join('/')} (${item.pedidos})</span>`;
-                    chartArea.appendChild(bar);
-                });
-            } else {
-                chartArea.innerHTML = '<p style="color:var(--text-muted)">No hay datos suficientes</p>';
-            }
+        } catch (e) { 
+            console.error("Error en Reportes Detallados:", e); 
         }
     }
+    window.loadReportes = loadReportes; // Exponer globalmente
 
     // 2. MESAS
+    window.crearMesa = async () => {
+        window.openModal('Añadir Nueva Mesa', `
+            <label>Cantidad de Sillas:</label>
+            <input type="number" id="new-mesa-sillas" class="glass-input" value="4" min="1">
+            <label>Estado Inicial:</label>
+            <select id="new-mesa-estado" class="glass-input">
+                <option value="Disponible">Disponible</option>
+                <option value="Ocupada">Ocupada</option>
+            </select>
+        `, async () => {
+            const sillas = document.getElementById('new-mesa-sillas').value;
+            const estado = document.getElementById('new-mesa-estado').value;
+
+            try {
+                await fetchAPI('/mesas/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sillas: parseInt(sillas), estado: estado })
+                });
+                window.closeModal();
+                loadMesas();
+            } catch (e) {
+                alert(e.message);
+            }
+        });
+    };
+
+    window.eliminarMesa = async (id) => {
+        if(confirm('¿Deseas eliminar permanentemente esta mesa?')) {
+            try {
+                await fetchAPI(`/mesas/${id}`, { method: 'DELETE' });
+                window.closeModal();
+                loadMesas();
+            } catch (e) {
+                alert(e.message);
+            }
+        }
+    };
+
     async function loadMesas() {
         const mesas = await fetchAPI('/mesas/');
         const grid = document.getElementById('mesasGrid');
@@ -145,11 +229,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div style="font-weight:600; text-transform:uppercase; font-size:12px;">${mesa.estado}</div>
             `;
             
-            if (isMaitre || isMesero || isAdmin) {
+            if (isMaitre || isMesero) {
                 card.style.cursor = 'pointer';
                 card.addEventListener('click', async () => {
-                    const isAdminOrMaitre = isAdmin || isMaitre;
-                    
                     let bodyHtml = `
                         <label>Estado de la mesa:</label>
                         <select id="modal-mesa-estado" class="glass-input">
@@ -159,10 +241,14 @@ document.addEventListener('DOMContentLoaded', () => {
                         </select>
                     `;
 
-                    if (isAdminOrMaitre) {
+                    if (isMaitre) {
                         bodyHtml += `
                             <label>Cantidad de Sillas:</label>
                             <input type="number" id="modal-mesa-sillas" class="glass-input" value="${mesa.sillas}" min="1">
+                            <hr style="border:0; border-top:1px solid rgba(255,255,255,0.1); margin:15px 0;">
+                            <button type="button" class="btn-secondary" style="width:100%; color:var(--danger); border-color:var(--danger);" onclick="window.eliminarMesa(${mesa.id})">
+                                <i class="ph ph-trash"></i> Eliminar Mesa
+                            </button>
                         `;
                     }
 
@@ -170,7 +256,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         const nuevoEstado = document.getElementById('modal-mesa-estado').value;
                         
                         try {
-                            if (isAdminOrMaitre) {
+                            if (isMaitre) {
                                 const nuevasSillas = document.getElementById('modal-mesa-sillas').value;
                                 await fetchAPI(`/mesas/${mesa.id}`, { 
                                     method: 'PUT',
@@ -204,10 +290,27 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         const platos = await fetchAPI('/platos/');
-        const selectPlato = document.getElementById('select-plato');
-        selectPlato.innerHTML = '';
+        
+        // Limpiar optgroups
+        const optEntradas = document.getElementById('opt-entradas');
+        const optFuertes = document.getElementById('opt-fuertes');
+        const optPostres = document.getElementById('opt-postres');
+        const optBebidas = document.getElementById('opt-bebidas');
+        
+        optEntradas.innerHTML = '';
+        optFuertes.innerHTML = '';
+        optPostres.innerHTML = '';
+        optBebidas.innerHTML = '';
+
         platos.forEach(p => {
-            selectPlato.innerHTML += `<option value="${p.id}" data-precio="${p.precio}" data-nombre="${p.nombre}">${p.nombre} (${formatCOP(p.precio)})</option>`;
+            const option = `<option value="${p.id}" data-precio="${p.precio}" data-nombre="${p.nombre}">${p.nombre} (${formatCOP(p.precio)})</option>`;
+            
+            // Asignar según tipo_id (basado en populate_db.py)
+            // 1=Entrada, 2=Plato Fuerte, 3=Postre, 4=Bebida
+            if (p.tipo_id === 1) optEntradas.innerHTML += option;
+            else if (p.tipo_id === 2) optFuertes.innerHTML += option;
+            else if (p.tipo_id === 3) optPostres.innerHTML += option;
+            else if (p.tipo_id === 4) optBebidas.innerHTML += option;
         });
     }
 
@@ -245,6 +348,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('formNuevoPedido').addEventListener('submit', async (e) => {
         e.preventDefault();
         const mesa_id = document.getElementById('select-mesa').value;
+        const personas = document.getElementById('input-personas').value;
         if (!mesa_id) return alert('Selecciona una mesa');
         if (ordenActual.length === 0) return alert('Añade al menos un plato a la orden');
 
@@ -253,6 +357,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 cliente_id: 1,
                 mesero_id: 1,
                 mesa_id: parseInt(mesa_id),
+                personas: parseInt(personas),
                 ordenes: ordenActual.map(o => ({ plato_id: o.plato_id, cantidad: o.cantidad }))
             };
             
@@ -383,6 +488,53 @@ document.addEventListener('DOMContentLoaded', () => {
             } catch (e) {
                 alert(e.message);
             }
+        }
+    };
+
+    // 5. CLIENTES
+    window.buscarHistorialCliente = async () => {
+        const id = document.getElementById('input-search-cliente').value;
+        if(!id) return alert("Ingrese un ID");
+
+        try {
+            const res = await fetchAPI(`/clientes/${id}/historial`);
+            const container = document.getElementById('clienteHistorialResult');
+            container.innerHTML = '';
+
+            if(res.historial.length === 0) {
+                container.innerHTML = '<p style="color:var(--text-muted)">No hay registros para este cliente.</p>';
+                return;
+            }
+
+            container.innerHTML = `
+                <div style="margin-bottom:20px; font-weight:600;">Total Visitas: ${res.total_visitas}</div>
+                <div class="table-container">
+                    <table class="glass-table">
+                        <thead>
+                            <tr>
+                                <th>Pedido</th>
+                                <th>Fecha</th>
+                                <th>Mesa</th>
+                                <th>Items</th>
+                                <th>Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${res.historial.map(p => `
+                                <tr>
+                                    <td>#${p.pedido_id}</td>
+                                    <td>${new Date(p.fecha).toLocaleDateString()}</td>
+                                    <td>${p.mesa_id}</td>
+                                    <td style="font-size:12px;">${p.items_consumidos.map(i => `${i.cantidad}x Plato ${i.plato_id}`).join(', ')}</td>
+                                    <td style="font-weight:600;">${formatCOP(p.total)}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        } catch (e) {
+            alert(e.message);
         }
     };
 
