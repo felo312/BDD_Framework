@@ -8,19 +8,27 @@ class Rol(Base):
     id = Column(Integer, primary_key=True, index=True)
     nombre = Column(String, unique=True, index=True)
 
+class Actuacion(Base):
+    __tablename__ = "actuaciones"
+    id = Column(Integer, primary_key=True, index=True)
+    rol_id = Column(Integer, ForeignKey("roles.id"))
+    usuario_id = Column(Integer, ForeignKey("usuarios.id"))
+
 class Usuario(Base):
     __tablename__ = "usuarios"
     id = Column(Integer, primary_key=True, index=True)
     nombre = Column(String)
     clave = Column(String)
     fecha_clave = Column(DateTime, default=datetime.datetime.utcnow)
-    rol_id = Column(Integer, ForeignKey("roles.id"))
-    rol = relationship("Rol")
+    
+    # Relación muchos a muchos a través de actuaciones
+    roles = relationship("Rol", secondary="actuaciones", backref="usuarios")
 
 class Mesa(Base):
     __tablename__ = "mesas"
     id = Column(Integer, primary_key=True, index=True)
     sillas = Column(Integer)
+    estado = Column(String, default="Disponible") # Disponible, Reservada, Ocupada
 
 class Reservacion(Base):
     __tablename__ = "reservaciones"
@@ -46,11 +54,20 @@ class Plato(Base):
     tiempo = Column(Interval)
     precio = Column(Numeric)
 
+class Especialidad(Base):
+    __tablename__ = "especialidades"
+    id = Column(Integer, primary_key=True, index=True)
+    cocinero_id = Column(Integer, ForeignKey("usuarios.id"))
+    plato_id = Column(Integer, ForeignKey("platos.id"))
+
 class Pedido(Base):
     __tablename__ = "pedidos"
     id = Column(Integer, primary_key=True, index=True)
     cliente_id = Column(Integer, ForeignKey("usuarios.id"))
     mesero_id = Column(Integer, ForeignKey("usuarios.id"))
+    mesa_id = Column(Integer, ForeignKey("mesas.id"))
+    fecha = Column(DateTime, default=datetime.datetime.utcnow)
+    total = Column(Numeric, default=0.0)
 
 class Orden(Base):
     __tablename__ = "ordenes"

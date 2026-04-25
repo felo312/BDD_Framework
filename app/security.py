@@ -107,10 +107,14 @@ class RoleChecker:
         self.allowed_roles = allowed_roles
 
     def __call__(self, user: models.Usuario = Depends(get_current_user)):
-        if user.rol.nombre not in self.allowed_roles:
+        user_role_names = [r.nombre for r in user.roles]
+        
+        has_allowed_role = any(role in self.allowed_roles for role in user_role_names)
+        
+        if not has_allowed_role:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Operación no permitida. Requiere uno de los siguientes roles: {', '.join(self.allowed_roles)}"
+                detail=f"Operación no permitida. Requiere uno de los siguientes roles: {', '.join(self.allowed_roles)}. Roles actuales: {', '.join(user_role_names)}"
             )
         return user
 # --------------------------------------------------------------------

@@ -17,6 +17,7 @@ class Usuario(UsuarioBase):
 
 class MesaBase(BaseModel):
     sillas: int
+    estado: str = "Disponible"
 
 class MesaCreate(MesaBase):
     pass
@@ -61,11 +62,14 @@ class OrdenBase(BaseModel):
 class PedidoCreate(BaseModel):
     cliente_id: int
     mesero_id: int
+    mesa_id: int
     ordenes: List[OrdenBase]
 
 class Pedido(BaseModel):
     id: int
     cliente_id: int
     mesero_id: int
+    mesa_id: int
+    total: float
     class Config:
         from_attributes = True

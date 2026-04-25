@@ -4,15 +4,15 @@ import sys
 # Forzar a que el cliente de Postgres hable UTF-8
 os.environ["PGCLIENTENCODING"] = "utf-8"
 
-# Si estás en Windows, esto ayuda a la consola
 if sys.platform == "win32":
     import io
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from typing import List
 import datetime
 from . import models, schemas, database, security
@@ -24,65 +24,113 @@ app = FastAPI(title="API Restaurante - FastAPI")
 # Configurar CORS para el Frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # En producción cambiar por los dominios reales
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ------------------------------------------------------------------
-# /**
-#  * @brief Registra un nuevo usuario en la base de datos (con hash de contraseña).
-#  * @param user: Objeto UsuarioCreate
-#  * @param db: Sesión DB
-#  * @return Usuario creado (sin devolver contraseña)
-#  * @pre Los datos deben ser válidos.
-#  * @post Usuario guardado en BD.
-#  */
+# ==========================================
+# GESTIÓN DE EMPLEADOS / USUARIOS (CRUD)
+# ==========================================
 @app.post("/usuarios/", response_model=schemas.Usuario)
 def create_user(user: schemas.UsuarioCreate, db: Session = Depends(database.get_db)):
+    db_rol = db.query(models.Rol).filter(models.Rol.id == user.rol_id).first()
+    if not db_rol:
+        raise HTTPException(status_code=400, detail=f"El rol_id {user.rol_id} no existe en la BD.")
+
     hashed_password = security.get_password_hash(user.clave)
-    db_user = models.Usuario(nombre=user.nombre, clave=hashed_password, rol_id=user.rol_id)
+    db_user = models.Usuario(nombre=user.nombre, clave=hashed_password)
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
+    
+    db_actuacion = models.Actuacion(rol_id=user.rol_id, usuario_id=db_user.id)
+    db.add(db_actuacion)
+    db.commit()
+    
+    db_user.rol_id = user.rol_id
     return db_user
-# --------------------------------------------------------------------
 
-# ------------------------------------------------------------------
-# /**
-#  * @brief Endpoint de login para obtener token JWT.
-#  * @param form_data: Credenciales (username, password)
-#  * @param db: Sesión DB
-#  * @return Token JWT
-#  * @pre Credenciales correctas.
-#  * @post Devuelve access_token.
-#  */
+@app.get("/empleados/")
+def get_empleados(db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(security.RoleChecker(["Administrador"]))):
+    # Devuelve todos los empleados con sus roles y especialidades
+    usuarios = db.query(models.Usuario).all()
+    resultado = []
+    for u in usuarios:
+        roles = [r.nombre for r in u.roles]
+        especialidades = []
+        if "Cocinero" in roles:
+            esps = db.query(models.Especialidad).filter(models.Especialidad.cocinero_id == u.id).all()
+            especialidades = [{"plato_id": e.plato_id} for e in esps]
+            
+        resultado.append({
+            "id": u.id,
+            "nombre": u.nombre,
+            "roles": roles,
+            "especialidades": especialidades
+        })
+    return resultado
+
+@app.delete("/empleados/{empleado_id}")
+def delete_empleado(empleado_id: int, db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(security.RoleChecker(["Administrador"]))):
+    emp = db.query(models.Usuario).filter(models.Usuario.id == empleado_id).first()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Empleado no encontrado")
+    
+    # Eliminar relaciones
+    db.query(models.Actuacion).filter(models.Actuacion.usuario_id == empleado_id).delete()
+    db.query(models.Especialidad).filter(models.Especialidad.cocinero_id == empleado_id).delete()
+    
+    db.delete(emp)
+    db.commit()
+    return {"status": "ok", "message": "Empleado eliminado"}
+
+# ==========================================
+# SEGURIDAD Y LOGIN
+# ==========================================
 @app.post("/login")
 def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(database.get_db)):
     user = db.query(models.Usuario).filter(models.Usuario.nombre == form_data.username).first()
-    if not user or not security.verify_password(form_data.password, user.clave):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Usuario o contraseña incorrectos",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrecto")
+
+    clave_db = user.clave
+    is_valid = False
+    needs_upgrade = False
+    
+    if isinstance(clave_db, str) and len(clave_db) == 64:
+        is_valid = security.verify_password(form_data.password, clave_db)
+    else:
+        try:
+            if isinstance(clave_db, bytes) or isinstance(clave_db, memoryview):
+                clave_texto = bytes(clave_db).decode('utf-8')
+            elif isinstance(clave_db, str) and clave_db.startswith('\\x'):
+                clave_texto = bytes.fromhex(clave_db[2:]).decode('utf-8')
+            else:
+                clave_texto = str(clave_db)
+            if clave_texto == form_data.password:
+                is_valid = True
+                needs_upgrade = True
+        except Exception:
+            pass
+
+    if not is_valid:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrecto")
+        
+    if needs_upgrade:
+        user.clave = security.get_password_hash(form_data.password)
+        db.commit()
+
     access_token_expires = datetime.timedelta(minutes=security.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = security.create_access_token(
         data={"sub": user.nombre}, expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
-# --------------------------------------------------------------------
 
-# ------------------------------------------------------------------
-# /**
-#  * @brief Crea una nueva mesa en el sistema.
-#  * @param mesa: datos de la mesa (cantidad de sillas)
-#  * @param db: Sesión de la base de datos
-#  * @return Objeto Mesa creado
-#  * @pre El usuario debe tener rol de Administrador (no validado aquí por simplicidad)
-#  * @post La mesa se registra en la DB
-#  */
+# ==========================================
+# GESTIÓN DE MESAS
+# ==========================================
 @app.post("/mesas/", response_model=schemas.Mesa)
 def create_mesa(mesa: schemas.MesaCreate, db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(security.RoleChecker(["Administrador", "Maitre"]))):
     db_mesa = models.Mesa(**mesa.dict())
@@ -90,50 +138,77 @@ def create_mesa(mesa: schemas.MesaCreate, db: Session = Depends(database.get_db)
     db.commit()
     db.refresh(db_mesa)
     return db_mesa
-# --------------------------------------------------------------------
 
-# ------------------------------------------------------------------
-# /**
-#  * @brief Valida el cupo y crea una reservación.
-#  * @param reserva: datos de la reservación
-#  * @param db: Sesión de DB
-#  * @return Objeto reservación o excepción si no hay cupo
-#  * @pre Debe existir la mesa
-#  * @post Se bloquea la mesa para ese horario si es aprobada
-#  */
+@app.patch("/mesas/{mesa_id}/estado")
+def update_mesa_estado(mesa_id: int, estado: str, db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(security.RoleChecker(["Maitre", "Mesero"]))):
+    # Estados permitidos: Disponible, Reservada, Ocupada
+    if estado not in ["Disponible", "Reservada", "Ocupada"]:
+        raise HTTPException(status_code=400, detail="Estado inválido")
+    
+    db_mesa = db.query(models.Mesa).filter(models.Mesa.id == mesa_id).first()
+    if not db_mesa:
+        raise HTTPException(status_code=404, detail="Mesa no encontrada")
+        
+    db_mesa.estado = estado
+    db.commit()
+    return {"status": "ok", "mesa_id": mesa_id, "nuevo_estado": estado}
+
+# ==========================================
+# VALIDACIÓN DE CUPO Y RESERVAS
+# ==========================================
 @app.post("/reservaciones/", response_model=schemas.Reservacion)
 def create_reservacion(reserva: schemas.ReservacionCreate, db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(security.RoleChecker(["Maitre", "Administrador"]))):
     db_mesa = db.query(models.Mesa).filter(models.Mesa.id == reserva.mesa_id).first()
     if not db_mesa:
         raise HTTPException(status_code=404, detail="Mesa no encontrada")
+        
+    # Validación de Cupo
     if reserva.cantidad > db_mesa.sillas:
-        raise HTTPException(status_code=400, detail="La mesa no tiene la capacidad suficiente para la cantidad de personas")
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Excede capacidad. Mesa {reserva.mesa_id} solo tiene {db_mesa.sillas} sillas. Sugerimos buscar mesa de mayor capacidad."
+        )
     
     db_reserva = models.Reservacion(**reserva.dict(), estado="reservada")
+    db_mesa.estado = "Reservada" # Actualizamos estado físico de la mesa
     db.add(db_reserva)
     db.commit()
     db.refresh(db_reserva)
     return db_reserva
-# --------------------------------------------------------------------
 
-# ------------------------------------------------------------------
-# /**
-#  * @brief Registra un pedido con sus órdenes (caso de uso dinámico).
-#  * @param pedido: Lista de platos y cantidad
-#  * @param db: Sesión
-#  * @return Pedido registrado
-#  * @pre Platos y mesa deben ser válidos
-#  * @post Pedido e items insertados
-#  */
-@app.post("/pedidos/", response_model=schemas.Pedido)
-def create_pedido(pedido: schemas.PedidoCreate, db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(security.RoleChecker(["Mesero"]))):
-    # Crear pedido
-    db_pedido = models.Pedido(cliente_id=pedido.cliente_id, mesero_id=pedido.mesero_id)
+# ==========================================
+# REGISTRO DE PEDIDOS (ASÍNCRONO)
+# ==========================================
+def notificar_cocina(pedido_id: int, mesa_id: int, items_count: int):
+    # Simula una notificación websocket/push a cocina
+    print(f"[COCINA] Nuevo pedido #{pedido_id} para la Mesa {mesa_id}. Platos solicitados: {items_count}")
+
+@app.post("/pedidos/")
+async def create_pedido(pedido: schemas.PedidoCreate, background_tasks: BackgroundTasks, db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(security.RoleChecker(["Mesero"]))):
+    db_mesa = db.query(models.Mesa).filter(models.Mesa.id == pedido.mesa_id).first()
+    if not db_mesa:
+        raise HTTPException(status_code=404, detail="Mesa no encontrada")
+        
+    # Cambiamos estado de la mesa a Ocupada
+    db_mesa.estado = "Ocupada"
+    
+    # Calcular total del pedido
+    total_pedido = 0.0
+    for orden in pedido.ordenes:
+        plato = db.query(models.Plato).filter(models.Plato.id == orden.plato_id).first()
+        if plato:
+            total_pedido += float(plato.precio) * orden.cantidad
+
+    db_pedido = models.Pedido(
+        cliente_id=pedido.cliente_id, 
+        mesero_id=pedido.mesero_id, 
+        mesa_id=pedido.mesa_id,
+        total=total_pedido
+    )
     db.add(db_pedido)
     db.commit()
     db.refresh(db_pedido)
     
-    # Crear órdenes
     for orden in pedido.ordenes:
         db_orden = models.Orden(
             plato_id=orden.plato_id, 
@@ -144,34 +219,59 @@ def create_pedido(pedido: schemas.PedidoCreate, db: Session = Depends(database.g
         db.add(db_orden)
     
     db.commit()
-    return db_pedido
-# --------------------------------------------------------------------
+    
+    # Procesamiento Asíncrono de Notificación a Cocina
+    background_tasks.add_task(notificar_cocina, db_pedido.id, db_pedido.mesa_id, len(pedido.ordenes))
+    
+    return {
+        "status": "ok", 
+        "pedido_id": db_pedido.id, 
+        "total": total_pedido,
+        "mensaje": "Pedido registrado y cocina notificada asíncronamente."
+    }
 
-# ------------------------------------------------------------------
-# /**
-#  * @brief Genera estadísticas y reportes de pedidos.
-#  * @param db: Sesión
-#  * @return Lista de todos los pedidos
-#  * @pre Usuario es Admin
-#  * @post Devuelve datos de inteligencia de negocio
-#  */
-@app.get("/reportes/pedidos")
-def reportes_pedidos(db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(security.RoleChecker(["Administrador"]))):
-    total_pedidos = db.query(models.Pedido).count()
-    return {"total_pedidos": total_pedidos}
-# --------------------------------------------------------------------
+# ==========================================
+# REPORTES Y ESTADÍSTICAS (BI)
+# ==========================================
+@app.get("/reportes/dashboard")
+def reportes_dashboard(db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(security.RoleChecker(["Administrador"]))):
+    # Total de ingresos históricos
+    ingresos = db.query(func.sum(models.Pedido.total)).scalar() or 0.0
+    
+    # Frecuencia de consumo (Pedidos por día)
+    pedidos_fecha = db.query(
+        func.date(models.Pedido.fecha).label("dia"),
+        func.count(models.Pedido.id).label("cantidad")
+    ).group_by(func.date(models.Pedido.fecha)).all()
+    
+    historico = [{"fecha": str(row.dia), "pedidos": row.cantidad} for row in pedidos_fecha]
+    
+    return {
+        "ingresos_totales": ingresos,
+        "frecuencia_consumo": historico,
+        "total_historico_pedidos": sum([r.cantidad for r in pedidos_fecha])
+    }
 
-# ------------------------------------------------------------------
-# /**
-#  * @brief Historial de clientes (Funcionalidad adicional).
-#  * @param cliente_id: ID del cliente
-#  * @param db: Sesión
-#  * @return Historial de consumos del cliente
-#  * @pre Ninguna
-#  * @post Ninguna
-#  */
+# ==========================================
+# HISTORIAL DE CLIENTES
+# ==========================================
 @app.get("/clientes/{cliente_id}/historial")
-def historial_cliente(cliente_id: int, db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(security.RoleChecker(["Administrador", "Maitre"]))):
-    pedidos = db.query(models.Pedido).filter(models.Pedido.cliente_id == cliente_id).all()
-    return pedidos
-# --------------------------------------------------------------------
+def historial_cliente(cliente_id: int, db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(security.RoleChecker(["Administrador", "Maitre", "Mesero"]))):
+    pedidos = db.query(models.Pedido).filter(models.Pedido.cliente_id == cliente_id).order_by(models.Pedido.fecha.desc()).all()
+    
+    resultados = []
+    for p in pedidos:
+        ordenes = db.query(models.Orden).filter(models.Orden.pedido_id == p.id).all()
+        resultados.append({
+            "pedido_id": p.id,
+            "fecha": p.fecha,
+            "mesa_id": p.mesa_id,
+            "total": p.total,
+            "items_consumidos": [{"plato_id": o.plato_id, "cantidad": o.cantidad} for o in ordenes]
+        })
+        
+    return {
+        "cliente_id": cliente_id,
+        "total_visitas": len(pedidos),
+        "historial": resultados
+    }
