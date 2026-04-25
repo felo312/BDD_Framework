@@ -1,0 +1,1692 @@
+--
+-- PostgreSQL database dump
+--
+
+\restrict hKSCBNLNDBcjZx7TTeWo8ggLlR0PvZmqK5tIFhIT2RSMwbmkXBgB7wwGZVlTXb5
+
+-- Dumped from database version 15.16
+-- Dumped by pg_dump version 15.16
+
+SET statement_timeout = 0;
+SET lock_timeout = 0;
+SET idle_in_transaction_session_timeout = 0;
+SET client_encoding = 'UTF8';
+SET standard_conforming_strings = on;
+SELECT pg_catalog.set_config('search_path', '', false);
+SET check_function_bodies = false;
+SET xmloption = content;
+SET client_min_messages = warning;
+SET row_security = off;
+
+--
+-- Name: estadoorden; Type: DOMAIN; Schema: public; Owner: estudiante
+--
+
+CREATE DOMAIN public.estadoorden AS integer
+	CONSTRAINT estadoorden_check CHECK ((VALUE = ANY (ARRAY[0, 1, 2])));
+
+
+ALTER DOMAIN public.estadoorden OWNER TO "estudiante";
+
+--
+-- Name: estadoreservacion; Type: DOMAIN; Schema: public; Owner: estudiante
+--
+
+CREATE DOMAIN public.estadoreservacion AS integer
+	CONSTRAINT estadoreservacion_check CHECK ((VALUE = ANY (ARRAY[0, 1, 2, 3])));
+
+
+ALTER DOMAIN public.estadoreservacion OWNER TO "estudiante";
+
+--
+-- Name: fn_calcular_tiempos_entrega(integer, timestamp without time zone, timestamp without time zone); Type: FUNCTION; Schema: public; Owner: estudiante
+--
+
+CREATE FUNCTION public.fn_calcular_tiempos_entrega(p_mesero_id integer DEFAULT NULL::integer, p_fecha_inicio timestamp without time zone DEFAULT NULL::timestamp without time zone, p_fecha_fin timestamp without time zone DEFAULT NULL::timestamp without time zone) RETURNS TABLE(mesero_id integer, mesero_nombre text, pedidos_atendidos bigint, tiempo_promedio_entrega interval, eficiencia numeric)
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        USR.id AS mesero_id,
+        USR.nombre AS mesero_nombre,
+        COUNT(DISTINCT PED.id) AS pedidos_atendidos,
+        AVG(ORD.entregado - PED.solicitado) AS tiempo_promedio_entrega,
+        ROUND(COUNT(DISTINCT CASE WHEN ORD.entregado - PED.solicitado < '00:30:00' THEN PED.id END) * 100.0 / 
+              NULLIF(COUNT(DISTINCT PED.id), 0), 2) AS eficiencia
+    FROM 
+        pedidos AS PED
+    JOIN 
+        usuarios AS USR ON PED.mesero_id = USR.id
+    JOIN 
+        ordenes AS ORD ON PED.id = ORD.pedido_id
+    WHERE 
+        (p_mesero_id IS NULL OR PED.mesero_id = p_mesero_id)
+        AND (p_fecha_inicio IS NULL OR PED.solicitado >= p_fecha_inicio)
+        AND (p_fecha_fin IS NULL OR PED.solicitado <= p_fecha_fin)
+        AND ORD.entregado IS NOT NULL
+    GROUP BY 
+        USR.id, USR.nombre
+    ORDER BY 
+        tiempo_promedio_entrega;
+END;
+$$;
+
+
+ALTER FUNCTION public.fn_calcular_tiempos_entrega(p_mesero_id integer, p_fecha_inicio timestamp without time zone, p_fecha_fin timestamp without time zone) OWNER TO "estudiante";
+
+--
+-- Name: fn_obtener_ordenes_filtradas(integer, integer, integer); Type: FUNCTION; Schema: public; Owner: estudiante
+--
+
+CREATE FUNCTION public.fn_obtener_ordenes_filtradas(p_cliente_id integer, p_plato_id integer, p_cantidad_min integer) RETURNS TABLE(orden_id integer, pedido_id integer, nombre_plato text, cantidad integer, precio_unitario numeric, subtotal numeric, estado_orden public.estadoorden, fecha_solicitud timestamp with time zone, fecha_entrega timestamp with time zone)
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    -- Validar existencia del cliente
+    IF NOT EXISTS (SELECT 1 FROM usuarios WHERE id = p_cliente_id) THEN
+        RAISE EXCEPTION 'El cliente con ID % no existe', p_cliente_id;
+    END IF;
+    
+    -- Validar existencia del plato
+    IF NOT EXISTS (SELECT 1 FROM platos WHERE id = p_plato_id) THEN
+        RAISE EXCEPTION 'El plato con ID % no existe', p_plato_id;
+    END IF;
+    
+    -- Validar cantidad mínima
+    IF p_cantidad_min <= 0 THEN
+        RAISE EXCEPTION 'La cantidad mínima debe ser mayor que cero';
+    END IF;
+
+    RETURN QUERY
+    SELECT 
+        ORD.id AS orden_id,
+        ORD.pedido_id,
+        PLA.nombre AS nombre_plato,
+        ORD.cantidad,
+        PLA.precio AS precio_unitario,
+        (ORD.cantidad * PLA.precio) AS subtotal,
+        ORD.estado AS estado_orden,
+        PED.solicitado AS fecha_solicitud,
+        ORD.entregado AS fecha_entrega
+    FROM 
+        ordenes AS ORD
+    JOIN 
+        platos AS PLA ON ORD.plato_id = PLA.id
+    JOIN 
+        pedidos AS PED ON ORD.pedido_id = PED.id
+    WHERE 
+        PED.cliente_id = p_cliente_id
+        AND PLA.id = p_plato_id
+        AND ORD.cantidad >= p_cantidad_min
+    ORDER BY 
+        PED.solicitado DESC;
+END;
+$$;
+
+
+ALTER FUNCTION public.fn_obtener_ordenes_filtradas(p_cliente_id integer, p_plato_id integer, p_cantidad_min integer) OWNER TO "estudiante";
+
+--
+-- Name: fn_obtener_pedidos_con_mesero(integer); Type: FUNCTION; Schema: public; Owner: estudiante
+--
+
+CREATE FUNCTION public.fn_obtener_pedidos_con_mesero(p_cliente_id integer) RETURNS TABLE(pedido_id integer, mesero_id integer, mesero_nombre text)
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    -- Verificar que el cliente exista
+    IF NOT EXISTS (SELECT 1 FROM usuarios WHERE id = p_cliente_id) THEN
+        RAISE EXCEPTION 'El cliente con ID % no existe', p_cliente_id;
+    END IF;
+
+    RETURN QUERY
+    SELECT PED.id AS pedido_id
+         , PED.mesero_id
+         , USR.nombre AS mesero_nombre
+    FROM     pedidos AS PED
+    JOIN     usuarios AS USR ON PED.mesero_id = USR.id
+    WHERE    PED.cliente_id = p_cliente_id;
+END;
+$$;
+
+
+ALTER FUNCTION public.fn_obtener_pedidos_con_mesero(p_cliente_id integer) OWNER TO "estudiante";
+
+--
+-- Name: fn_reporte_desempenho_meseros(timestamp without time zone, timestamp without time zone, integer, public.estadoorden, integer); Type: FUNCTION; Schema: public; Owner: estudiante
+--
+
+CREATE FUNCTION public.fn_reporte_desempenho_meseros(p_fecha_inicio timestamp without time zone, p_fecha_fin timestamp without time zone, p_tipo_plato_id integer, p_estado_orden public.estadoorden, p_min_platos_vendidos integer) RETURNS TABLE(nombre_mesero text, tipo_plato text, cantidad_total bigint, monto_total numeric, pedidos_atendidos bigint)
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    -- Validar rango de fechas
+    IF p_fecha_inicio >= p_fecha_fin THEN
+        RAISE EXCEPTION 'La fecha de inicio no puede ser mayor o igual que la fecha final';
+    END IF;
+    
+    -- Validar tipo de plato si se especificó
+    IF p_tipo_plato_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM tipos AS TIP WHERE TIP.id = p_tipo_plato_id
+    ) THEN
+        RAISE EXCEPTION 'El tipo de plato con ID % no existe', p_tipo_plato_id;
+    END IF;
+    
+    -- Validar cantidad mínima
+    IF p_min_platos_vendidos <= 0 THEN
+        RAISE EXCEPTION 'La cantidad mínima de platos debe ser mayor que cero';
+    END IF;
+
+    RETURN QUERY
+    SELECT 
+        USR.nombre AS nombre_mesero,
+        TIP.nombre AS tipo_plato,
+        SUM(ORD.cantidad) AS cantidad_total,
+        SUM(ORD.cantidad * PLA.precio) AS monto_total,
+        COUNT(DISTINCT PED.id) AS pedidos_atendidos
+    FROM 
+        pedidos AS PED
+    JOIN 
+        ordenes AS ORD ON PED.id = ORD.pedido_id
+    JOIN 
+        platos AS PLA ON ORD.plato_id = PLA.id
+    JOIN 
+        tipos AS TIP ON PLA.tipo_id = TIP.id
+    JOIN 
+        usuarios AS USR ON PED.mesero_id = USR.id
+    JOIN 
+        reservaciones AS RES ON PED.cliente_id = RES.cliente_id
+    JOIN 
+        horarios AS HOR ON RES.id = HOR.reservacion_id
+    WHERE 
+        PED.solicitado BETWEEN p_fecha_inicio AND p_fecha_fin
+        AND ORD.estado = p_estado_orden
+        AND (p_tipo_plato_id IS NULL OR PLA.tipo_id = p_tipo_plato_id)
+    GROUP BY 
+        USR.nombre, TIP.nombre
+    HAVING 
+        SUM(ORD.cantidad) >= p_min_platos_vendidos
+    ORDER BY 
+        monto_total DESC;
+END;
+$$;
+
+
+ALTER FUNCTION public.fn_reporte_desempenho_meseros(p_fecha_inicio timestamp without time zone, p_fecha_fin timestamp without time zone, p_tipo_plato_id integer, p_estado_orden public.estadoorden, p_min_platos_vendidos integer) OWNER TO "estudiante";
+
+--
+-- Name: fn_reporte_ventas_tipos_plato(timestamp without time zone, timestamp without time zone); Type: FUNCTION; Schema: public; Owner: estudiante
+--
+
+CREATE FUNCTION public.fn_reporte_ventas_tipos_plato(p_fecha_inicio timestamp without time zone, p_fecha_fin timestamp without time zone) RETURNS TABLE(tipo_plato text, cantidad_vendida bigint, monto_total numeric, porcentaje_contribucion numeric)
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+    v_total_monto numeric;
+BEGIN
+    -- Calcular el monto total para el porcentaje
+    SELECT COALESCE(SUM(ORD.cantidad * PLA.precio), 0) INTO v_total_monto
+    FROM ordenes AS ORD
+    JOIN platos AS PLA ON ORD.plato_id = PLA.id
+    JOIN pedidos AS PED ON ORD.pedido_id = PED.id
+    WHERE PED.solicitado BETWEEN p_fecha_inicio AND p_fecha_fin;
+
+    RETURN QUERY
+    SELECT 
+        TIP.nombre AS tipo_plato,
+        SUM(ORD.cantidad) AS cantidad_vendida,
+        SUM(ORD.cantidad * PLA.precio) AS monto_total,
+        CASE WHEN v_total_monto > 0 
+             THEN ROUND(SUM(ORD.cantidad * PLA.precio) * 100.0 / v_total_monto, 2)
+             ELSE 0 
+        END AS porcentaje_contribucion
+    FROM 
+        tipos AS TIP
+    JOIN 
+        platos AS PLA ON TIP.id = PLA.tipo_id
+    JOIN 
+        ordenes AS ORD ON PLA.id = ORD.plato_id
+    JOIN 
+        pedidos AS PED ON ORD.pedido_id = PED.id
+    WHERE 
+        PED.solicitado BETWEEN p_fecha_inicio AND p_fecha_fin
+    GROUP BY 
+        TIP.nombre
+    ORDER BY 
+        monto_total DESC;
+END;
+$$;
+
+
+ALTER FUNCTION public.fn_reporte_ventas_tipos_plato(p_fecha_inicio timestamp without time zone, p_fecha_fin timestamp without time zone) OWNER TO "estudiante";
+
+--
+-- Name: fn_validar_entregado(); Type: FUNCTION; Schema: public; Owner: estudiante
+--
+
+CREATE FUNCTION public.fn_validar_entregado() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+    v_solicitado timestamp with time zone;
+BEGIN
+    -- Obtener la fecha de solicitud del pedido relacionado
+    SELECT solicitado INTO v_solicitado
+    FROM pedidos
+    WHERE id = NEW.pedido_id;
+    
+    -- Validar que si hay fecha de entrega, sea posterior a la solicitud
+    IF NEW.entregado IS NOT NULL AND v_solicitado IS NOT NULL AND NEW.entregado < v_solicitado THEN
+        RAISE EXCEPTION 'La fecha de entrega (%) no puede ser anterior a la fecha de solicitud (%)', 
+                        NEW.entregado, v_solicitado;
+    END IF;
+    
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION public.fn_validar_entregado() OWNER TO "estudiante";
+
+--
+-- Name: fn_validar_fechas_pedido(); Type: FUNCTION; Schema: public; Owner: estudiante
+--
+
+CREATE FUNCTION public.fn_validar_fechas_pedido() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    -- Validar que la fecha de entrega no sea anterior a la de solicitud
+    IF NEW.entregado IS NOT NULL AND 
+       EXISTS (SELECT 1 FROM pedidos WHERE id = NEW.pedido_id AND solicitado > NEW.entregado) THEN
+        RAISE EXCEPTION 'La fecha de entrega no puede ser anterior a la fecha de solicitud del pedido';
+    END IF;
+    
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION public.fn_validar_fechas_pedido() OWNER TO "estudiante";
+
+--
+-- Name: o(integer); Type: FUNCTION; Schema: public; Owner: estudiante
+--
+
+CREATE FUNCTION public.o(cliente integer) RETURNS TABLE(nom_mesero text, mesero_id integer, pedido integer)
+    LANGUAGE plpgsql
+    AS $$ begin
+if not exists ( select 1 from Pedidos where cliente_id=cliente) 
+then raise exception ' el usuario con id % no tiene pedidos asociados' , cliente ;
+end if 
+; 
+return query
+ select U.nombre ,U.id,P.id from Usuarios U 
+LEFT join Pedidos P ON U.ID = P.MESERO_ID 
+WHERE P.CLIENTE_ID=CLIENTE; 
+END ;
+$$;
+
+
+ALTER FUNCTION public.o(cliente integer) OWNER TO "estudiante";
+
+--
+-- Name: validar_cocinero(); Type: FUNCTION; Schema: public; Owner: estudiante
+--
+
+CREATE FUNCTION public.validar_cocinero() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    -- Verificar si el usuario tiene el rol de cocinero
+    IF NOT EXISTS (
+        SELECT 1
+        FROM Actuaciones a
+        JOIN Roles r ON a.rol_id = r.id
+        WHERE a.usuario_id = NEW.cocinero_id AND r.nombre = 'cocinero'
+    ) THEN
+        RAISE EXCEPTION 'El usuario con id % no tiene el rol de cocinero.', NEW.cocinero_id;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION public.validar_cocinero() OWNER TO "estudiante";
+
+--
+-- Name: validar_mesero(); Type: FUNCTION; Schema: public; Owner: estudiante
+--
+
+CREATE FUNCTION public.validar_mesero() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    -- Verificar si el usuario tiene el rol de mesero
+    IF NOT EXISTS (
+        SELECT 1
+        FROM Actuaciones a
+        JOIN Roles r ON a.rol_id = r.id
+        WHERE a.usuario_id = NEW.mesero_id AND r.nombre = 'mesero'
+    ) THEN
+        RAISE EXCEPTION 'El usuario con id % no tiene el rol de mesero.', NEW.mesero_id;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION public.validar_mesero() OWNER TO "estudiante";
+
+SET default_tablespace = '';
+
+SET default_table_access_method = heap;
+
+--
+-- Name: actuaciones; Type: TABLE; Schema: public; Owner: estudiante
+--
+
+CREATE TABLE public.actuaciones (
+    id integer NOT NULL,
+    rol_id integer,
+    usuario_id integer
+);
+
+
+ALTER TABLE public.actuaciones OWNER TO "estudiante";
+
+--
+-- Name: actuaciones_id_seq; Type: SEQUENCE; Schema: public; Owner: estudiante
+--
+
+CREATE SEQUENCE public.actuaciones_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.actuaciones_id_seq OWNER TO "estudiante";
+
+--
+-- Name: actuaciones_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: estudiante
+--
+
+ALTER SEQUENCE public.actuaciones_id_seq OWNED BY public.actuaciones.id;
+
+
+--
+-- Name: especialidades; Type: TABLE; Schema: public; Owner: estudiante
+--
+
+CREATE TABLE public.especialidades (
+    id integer NOT NULL,
+    cocinero_id integer,
+    plato_id integer
+);
+
+
+ALTER TABLE public.especialidades OWNER TO "estudiante";
+
+--
+-- Name: especialidades_id_seq; Type: SEQUENCE; Schema: public; Owner: estudiante
+--
+
+CREATE SEQUENCE public.especialidades_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.especialidades_id_seq OWNER TO "estudiante";
+
+--
+-- Name: especialidades_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: estudiante
+--
+
+ALTER SEQUENCE public.especialidades_id_seq OWNED BY public.especialidades.id;
+
+
+--
+-- Name: horarios; Type: TABLE; Schema: public; Owner: estudiante
+--
+
+CREATE TABLE public.horarios (
+    id integer NOT NULL,
+    mesa_id integer,
+    reservacion_id integer,
+    inicio timestamp without time zone NOT NULL,
+    duracion interval,
+    CONSTRAINT horarios_duracion_check CHECK ((duracion < '02:00:00'::interval))
+);
+
+
+ALTER TABLE public.horarios OWNER TO "estudiante";
+
+--
+-- Name: horarios_id_seq; Type: SEQUENCE; Schema: public; Owner: estudiante
+--
+
+CREATE SEQUENCE public.horarios_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.horarios_id_seq OWNER TO "estudiante";
+
+--
+-- Name: horarios_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: estudiante
+--
+
+ALTER SEQUENCE public.horarios_id_seq OWNED BY public.horarios.id;
+
+
+--
+-- Name: mesas; Type: TABLE; Schema: public; Owner: estudiante
+--
+
+CREATE TABLE public.mesas (
+    id integer NOT NULL,
+    sillas integer NOT NULL
+);
+
+
+ALTER TABLE public.mesas OWNER TO "estudiante";
+
+--
+-- Name: mesas_id_seq; Type: SEQUENCE; Schema: public; Owner: estudiante
+--
+
+CREATE SEQUENCE public.mesas_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.mesas_id_seq OWNER TO "estudiante";
+
+--
+-- Name: mesas_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: estudiante
+--
+
+ALTER SEQUENCE public.mesas_id_seq OWNED BY public.mesas.id;
+
+
+--
+-- Name: ordenes; Type: TABLE; Schema: public; Owner: estudiante
+--
+
+CREATE TABLE public.ordenes (
+    id integer NOT NULL,
+    plato_id integer,
+    pedido_id integer,
+    estado public.estadoorden NOT NULL,
+    cantidad integer,
+    entregado timestamp with time zone,
+    CONSTRAINT ordenes_cantidad_check CHECK ((cantidad > 0))
+);
+
+
+ALTER TABLE public.ordenes OWNER TO "estudiante";
+
+--
+-- Name: COLUMN ordenes.entregado; Type: COMMENT; Schema: public; Owner: estudiante
+--
+
+COMMENT ON COLUMN public.ordenes.entregado IS 'Fecha y hora en que se completó la entrega de la orden';
+
+
+--
+-- Name: ordenes_id_seq; Type: SEQUENCE; Schema: public; Owner: estudiante
+--
+
+CREATE SEQUENCE public.ordenes_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.ordenes_id_seq OWNER TO "estudiante";
+
+--
+-- Name: ordenes_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: estudiante
+--
+
+ALTER SEQUENCE public.ordenes_id_seq OWNED BY public.ordenes.id;
+
+
+--
+-- Name: pedidos; Type: TABLE; Schema: public; Owner: estudiante
+--
+
+CREATE TABLE public.pedidos (
+    id integer NOT NULL,
+    cliente_id integer,
+    mesero_id integer,
+    solicitado timestamp with time zone
+);
+
+
+ALTER TABLE public.pedidos OWNER TO "estudiante";
+
+--
+-- Name: COLUMN pedidos.solicitado; Type: COMMENT; Schema: public; Owner: estudiante
+--
+
+COMMENT ON COLUMN public.pedidos.solicitado IS 'Fecha y hora en que se realizó la solicitud del pedido';
+
+
+--
+-- Name: pedidos_id_seq; Type: SEQUENCE; Schema: public; Owner: estudiante
+--
+
+CREATE SEQUENCE public.pedidos_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.pedidos_id_seq OWNER TO "estudiante";
+
+--
+-- Name: pedidos_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: estudiante
+--
+
+ALTER SEQUENCE public.pedidos_id_seq OWNED BY public.pedidos.id;
+
+
+--
+-- Name: platos; Type: TABLE; Schema: public; Owner: estudiante
+--
+
+CREATE TABLE public.platos (
+    id integer NOT NULL,
+    tipo_id integer,
+    nombre text NOT NULL,
+    descripcion text,
+    tiempo interval,
+    precio numeric
+);
+
+
+ALTER TABLE public.platos OWNER TO "estudiante";
+
+--
+-- Name: platos_id_seq; Type: SEQUENCE; Schema: public; Owner: estudiante
+--
+
+CREATE SEQUENCE public.platos_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.platos_id_seq OWNER TO "estudiante";
+
+--
+-- Name: platos_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: estudiante
+--
+
+ALTER SEQUENCE public.platos_id_seq OWNED BY public.platos.id;
+
+
+--
+-- Name: preparaciones; Type: TABLE; Schema: public; Owner: estudiante
+--
+
+CREATE TABLE public.preparaciones (
+    id integer NOT NULL,
+    cocinero_id integer,
+    orden_id integer
+);
+
+
+ALTER TABLE public.preparaciones OWNER TO "estudiante";
+
+--
+-- Name: preparaciones_id_seq; Type: SEQUENCE; Schema: public; Owner: estudiante
+--
+
+CREATE SEQUENCE public.preparaciones_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.preparaciones_id_seq OWNER TO "estudiante";
+
+--
+-- Name: preparaciones_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: estudiante
+--
+
+ALTER SEQUENCE public.preparaciones_id_seq OWNED BY public.preparaciones.id;
+
+
+--
+-- Name: reservaciones; Type: TABLE; Schema: public; Owner: estudiante
+--
+
+CREATE TABLE public.reservaciones (
+    id integer NOT NULL,
+    cliente_id integer,
+    cantidad integer NOT NULL,
+    estado public.estadoreservacion NOT NULL
+);
+
+
+ALTER TABLE public.reservaciones OWNER TO "estudiante";
+
+--
+-- Name: reservaciones_id_seq; Type: SEQUENCE; Schema: public; Owner: estudiante
+--
+
+CREATE SEQUENCE public.reservaciones_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.reservaciones_id_seq OWNER TO "estudiante";
+
+--
+-- Name: reservaciones_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: estudiante
+--
+
+ALTER SEQUENCE public.reservaciones_id_seq OWNED BY public.reservaciones.id;
+
+
+--
+-- Name: roles; Type: TABLE; Schema: public; Owner: estudiante
+--
+
+CREATE TABLE public.roles (
+    id integer NOT NULL,
+    nombre text NOT NULL
+);
+
+
+ALTER TABLE public.roles OWNER TO "estudiante";
+
+--
+-- Name: roles_id_seq; Type: SEQUENCE; Schema: public; Owner: estudiante
+--
+
+CREATE SEQUENCE public.roles_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.roles_id_seq OWNER TO "estudiante";
+
+--
+-- Name: roles_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: estudiante
+--
+
+ALTER SEQUENCE public.roles_id_seq OWNED BY public.roles.id;
+
+
+--
+-- Name: tipos; Type: TABLE; Schema: public; Owner: estudiante
+--
+
+CREATE TABLE public.tipos (
+    id integer NOT NULL,
+    nombre text NOT NULL
+);
+
+
+ALTER TABLE public.tipos OWNER TO "estudiante";
+
+--
+-- Name: tipos_id_seq; Type: SEQUENCE; Schema: public; Owner: estudiante
+--
+
+CREATE SEQUENCE public.tipos_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.tipos_id_seq OWNER TO "estudiante";
+
+--
+-- Name: tipos_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: estudiante
+--
+
+ALTER SEQUENCE public.tipos_id_seq OWNED BY public.tipos.id;
+
+
+--
+-- Name: usuarios; Type: TABLE; Schema: public; Owner: estudiante
+--
+
+CREATE TABLE public.usuarios (
+    id integer NOT NULL,
+    nombre text NOT NULL,
+    clave bytea NOT NULL,
+    fecha_clave timestamp without time zone NOT NULL
+);
+
+
+ALTER TABLE public.usuarios OWNER TO "estudiante";
+
+--
+-- Name: usuarios_id_seq; Type: SEQUENCE; Schema: public; Owner: estudiante
+--
+
+CREATE SEQUENCE public.usuarios_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.usuarios_id_seq OWNER TO "estudiante";
+
+--
+-- Name: usuarios_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: estudiante
+--
+
+ALTER SEQUENCE public.usuarios_id_seq OWNED BY public.usuarios.id;
+
+
+--
+-- Name: actuaciones id; Type: DEFAULT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.actuaciones ALTER COLUMN id SET DEFAULT nextval('public.actuaciones_id_seq'::regclass);
+
+
+--
+-- Name: especialidades id; Type: DEFAULT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.especialidades ALTER COLUMN id SET DEFAULT nextval('public.especialidades_id_seq'::regclass);
+
+
+--
+-- Name: horarios id; Type: DEFAULT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.horarios ALTER COLUMN id SET DEFAULT nextval('public.horarios_id_seq'::regclass);
+
+
+--
+-- Name: mesas id; Type: DEFAULT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.mesas ALTER COLUMN id SET DEFAULT nextval('public.mesas_id_seq'::regclass);
+
+
+--
+-- Name: ordenes id; Type: DEFAULT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.ordenes ALTER COLUMN id SET DEFAULT nextval('public.ordenes_id_seq'::regclass);
+
+
+--
+-- Name: pedidos id; Type: DEFAULT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.pedidos ALTER COLUMN id SET DEFAULT nextval('public.pedidos_id_seq'::regclass);
+
+
+--
+-- Name: platos id; Type: DEFAULT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.platos ALTER COLUMN id SET DEFAULT nextval('public.platos_id_seq'::regclass);
+
+
+--
+-- Name: preparaciones id; Type: DEFAULT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.preparaciones ALTER COLUMN id SET DEFAULT nextval('public.preparaciones_id_seq'::regclass);
+
+
+--
+-- Name: reservaciones id; Type: DEFAULT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.reservaciones ALTER COLUMN id SET DEFAULT nextval('public.reservaciones_id_seq'::regclass);
+
+
+--
+-- Name: roles id; Type: DEFAULT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.roles ALTER COLUMN id SET DEFAULT nextval('public.roles_id_seq'::regclass);
+
+
+--
+-- Name: tipos id; Type: DEFAULT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.tipos ALTER COLUMN id SET DEFAULT nextval('public.tipos_id_seq'::regclass);
+
+
+--
+-- Name: usuarios id; Type: DEFAULT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.usuarios ALTER COLUMN id SET DEFAULT nextval('public.usuarios_id_seq'::regclass);
+
+
+--
+-- Data for Name: actuaciones; Type: TABLE DATA; Schema: public; Owner: estudiante
+--
+
+COPY public.actuaciones (id, rol_id, usuario_id) FROM stdin;
+1	1	1
+2	1	2
+3	1	3
+4	1	4
+5	1	5
+6	2	7
+7	2	6
+8	3	8
+\.
+
+
+--
+-- Data for Name: especialidades; Type: TABLE DATA; Schema: public; Owner: estudiante
+--
+
+COPY public.especialidades (id, cocinero_id, plato_id) FROM stdin;
+1	6	7
+2	6	8
+3	6	9
+4	6	10
+5	6	11
+6	6	12
+7	6	13
+8	6	14
+9	6	15
+10	6	16
+11	6	17
+12	6	18
+13	6	19
+14	6	20
+15	6	21
+16	6	22
+17	6	23
+18	6	24
+19	6	25
+20	6	26
+21	6	27
+22	6	28
+23	6	29
+24	6	30
+25	7	7
+26	7	8
+27	7	9
+28	7	10
+29	7	11
+30	7	12
+31	7	13
+32	7	14
+33	7	15
+34	7	16
+35	7	17
+36	7	18
+37	7	19
+38	7	20
+39	7	21
+40	7	22
+41	7	23
+42	7	24
+43	7	25
+44	7	26
+45	7	27
+46	7	28
+47	7	29
+48	7	30
+49	8	1
+50	8	2
+51	8	3
+52	8	4
+53	8	5
+54	8	6
+\.
+
+
+--
+-- Data for Name: horarios; Type: TABLE DATA; Schema: public; Owner: estudiante
+--
+
+COPY public.horarios (id, mesa_id, reservacion_id, inicio, duracion) FROM stdin;
+11	2	11	2026-03-01 11:21:42.59171	01:59:00
+12	3	12	2026-02-26 19:21:42.59171	01:59:00
+13	4	13	2026-02-27 11:21:42.59171	01:59:00
+14	5	14	2026-02-21 11:21:42.59171	01:59:00
+15	6	15	2026-03-03 11:21:42.59171	01:59:00
+16	7	16	2026-03-02 19:21:42.59171	01:59:00
+17	8	17	2026-02-19 11:21:42.59171	01:59:00
+1	1	1	2026-03-15 22:48:52.468957	01:59:00
+2	2	2	2026-03-15 23:03:52.468957	01:59:00
+3	6	3	2026-03-15 23:18:52.468957	01:59:00
+4	7	4	2026-03-15 23:33:52.468957	01:59:00
+10	1	10	2026-03-16 01:03:52.468957	01:59:00
+5	6	5	2026-03-15 23:48:52.468957	01:59:00
+6	7	6	2026-03-16 00:03:52.468957	01:59:00
+7	8	7	2026-03-16 00:18:52.468957	01:59:00
+8	9	8	2026-03-16 00:33:52.468957	01:59:00
+9	10	9	2026-03-16 00:48:52.468957	01:59:00
+\.
+
+
+--
+-- Data for Name: mesas; Type: TABLE DATA; Schema: public; Owner: estudiante
+--
+
+COPY public.mesas (id, sillas) FROM stdin;
+1	4
+2	4
+3	4
+4	4
+5	4
+6	6
+7	6
+8	6
+9	2
+10	2
+\.
+
+
+--
+-- Data for Name: ordenes; Type: TABLE DATA; Schema: public; Owner: estudiante
+--
+
+COPY public.ordenes (id, plato_id, pedido_id, estado, cantidad, entregado) FROM stdin;
+1	3	1	1	2	\N
+2	18	1	2	3	\N
+3	15	1	0	4	\N
+4	26	1	1	5	\N
+5	1	2	2	1	\N
+6	22	2	0	2	\N
+7	14	2	1	3	\N
+8	29	2	2	4	\N
+9	2	3	0	5	\N
+10	20	3	1	1	\N
+11	9	3	2	2	\N
+12	27	3	0	3	\N
+13	2	4	1	4	\N
+14	20	4	2	5	\N
+15	8	4	0	1	\N
+16	30	4	1	2	\N
+17	2	5	2	3	\N
+18	19	5	0	4	\N
+19	8	5	1	5	\N
+20	25	5	2	1	\N
+21	6	6	0	2	\N
+22	22	6	1	3	\N
+23	13	6	2	4	\N
+24	27	6	0	5	\N
+25	3	7	1	1	\N
+26	17	7	2	2	\N
+27	14	7	0	3	\N
+28	29	7	1	4	\N
+29	2	8	2	5	\N
+30	23	8	0	1	\N
+31	12	8	1	2	\N
+32	25	8	2	3	\N
+33	5	9	0	4	\N
+34	24	9	1	5	\N
+35	15	9	2	1	\N
+36	27	9	0	2	\N
+37	1	10	1	3	\N
+38	24	10	2	4	\N
+39	10	10	0	5	\N
+40	26	10	1	1	\N
+41	4	11	2	2	\N
+42	22	11	0	3	\N
+43	11	11	1	4	\N
+44	28	11	2	5	\N
+45	5	12	0	1	\N
+46	21	12	1	2	\N
+47	12	12	2	3	\N
+48	29	12	0	4	\N
+49	3	13	1	5	\N
+50	21	13	2	1	\N
+51	14	13	0	2	\N
+52	29	13	1	3	\N
+53	4	14	2	4	\N
+54	17	14	0	5	\N
+55	10	14	1	1	\N
+56	29	14	2	2	\N
+57	2	15	0	3	\N
+58	19	15	1	4	\N
+59	16	15	2	5	\N
+60	30	15	0	1	\N
+61	1	16	1	2	\N
+62	19	16	2	3	\N
+63	8	16	0	4	\N
+64	30	16	1	5	\N
+65	6	17	2	1	\N
+66	21	17	0	2	\N
+67	15	17	1	3	\N
+68	27	17	2	4	\N
+69	2	18	0	5	\N
+70	23	18	1	1	\N
+71	11	18	2	2	\N
+72	26	18	0	3	\N
+73	4	19	1	4	\N
+74	24	19	2	5	\N
+75	16	19	0	1	\N
+76	29	19	1	2	\N
+77	1	20	2	3	\N
+78	17	20	0	4	\N
+79	7	20	1	5	\N
+80	30	20	2	1	\N
+81	1	21	0	2	\N
+82	17	21	1	3	\N
+83	9	21	2	4	\N
+84	29	21	0	5	\N
+85	3	22	1	1	\N
+86	23	22	2	2	\N
+87	13	22	0	3	\N
+88	27	22	1	4	\N
+89	5	23	2	5	\N
+90	17	23	0	1	\N
+91	16	23	1	2	\N
+92	28	23	2	3	\N
+93	5	24	0	4	\N
+94	22	24	1	5	\N
+95	8	24	2	1	\N
+96	30	24	0	2	\N
+97	1	25	1	3	\N
+98	17	25	2	4	\N
+99	10	25	0	5	\N
+100	27	25	1	1	\N
+101	2	26	2	2	\N
+102	22	26	0	3	\N
+103	13	26	1	4	\N
+104	28	26	2	5	\N
+105	5	27	0	1	\N
+106	20	27	1	2	\N
+107	10	27	2	3	\N
+108	28	27	0	4	\N
+109	3	28	1	5	\N
+110	23	28	2	1	\N
+111	7	28	0	2	\N
+112	28	28	1	3	\N
+113	1	29	2	4	\N
+114	18	29	0	5	\N
+115	8	29	1	1	\N
+116	30	29	2	2	\N
+117	2	30	0	3	\N
+118	23	30	1	4	\N
+119	10	30	2	5	\N
+120	25	30	0	1	\N
+121	4	31	1	2	\N
+122	17	31	2	3	\N
+123	11	31	0	4	\N
+124	28	31	1	5	\N
+125	4	32	2	1	\N
+126	24	32	0	2	\N
+127	11	32	1	3	\N
+128	29	32	2	4	\N
+129	1	33	0	5	\N
+130	23	33	1	1	\N
+131	9	33	2	2	\N
+132	29	33	0	3	\N
+133	3	34	1	4	\N
+134	17	34	2	5	\N
+135	10	34	0	1	\N
+136	26	34	1	2	\N
+137	6	35	2	3	\N
+138	19	35	0	4	\N
+139	10	35	1	5	\N
+140	30	35	2	1	\N
+141	4	36	0	2	\N
+142	19	36	1	3	\N
+143	8	36	2	4	\N
+144	25	36	0	5	\N
+145	5	37	1	1	\N
+146	22	37	2	2	\N
+147	9	37	0	3	\N
+148	29	37	1	4	\N
+\.
+
+
+--
+-- Data for Name: pedidos; Type: TABLE DATA; Schema: public; Owner: estudiante
+--
+
+COPY public.pedidos (id, cliente_id, mesero_id, solicitado) FROM stdin;
+1	1	2	\N
+2	1	4	\N
+3	1	1	\N
+4	1	5	\N
+5	1	4	\N
+6	2	4	\N
+7	2	1	\N
+8	2	4	\N
+9	2	4	\N
+10	2	4	\N
+11	3	4	\N
+12	3	1	\N
+13	3	5	\N
+14	3	2	\N
+15	3	3	\N
+16	4	3	\N
+17	4	2	\N
+18	4	3	\N
+19	5	3	\N
+20	5	5	\N
+21	5	4	\N
+22	5	4	\N
+23	6	4	\N
+24	6	5	\N
+25	6	5	\N
+26	6	4	\N
+27	6	5	\N
+28	7	1	\N
+29	7	1	\N
+30	7	2	\N
+31	7	3	\N
+32	7	3	\N
+33	7	3	\N
+34	8	5	\N
+35	8	4	\N
+36	8	3	\N
+37	8	4	\N
+\.
+
+
+--
+-- Data for Name: platos; Type: TABLE DATA; Schema: public; Owner: estudiante
+--
+
+COPY public.platos (id, tipo_id, nombre, descripcion, tiempo, precio) FROM stdin;
+1	1	Mojito	Bebida refrescante con ron, menta y limón	00:05:00	8.50
+2	1	Margarita	Cóctel de tequila, triple sec y limón	00:05:00	9.00
+3	1	Piña Colada	Bebida tropical con ron, piña y coco	00:05:00	8.00
+4	1	Cerveza Artesanal	Cerveza de producción local	00:02:00	5.00
+5	1	Vino Tinto	Vino tinto de la casa	00:02:00	7.00
+6	1	Café Irlandés	Café con whisky y crema	00:05:00	6.50
+7	2	Filete Mignon	Filete de res a la parrilla con salsa de champiñones	00:30:00	25.00
+8	2	Pollo a la Parrilla	Pollo asado con hierbas y vegetales	00:25:00	18.00
+9	2	Pasta Alfredo	Pasta con salsa de crema y queso parmesano	00:20:00	15.00
+10	2	Lasagna	Lasagna de carne con queso gratinado	00:35:00	20.00
+11	2	Paella	Arroz con mariscos y especias	00:40:00	22.00
+12	2	Salmón a la Plancha	Salmón fresco con limón y eneldo	00:25:00	24.00
+13	2	Risotto de Champiñones	Arroz cremoso con champiñones	00:30:00	19.00
+14	2	Costillas BBQ	Costillas de cerdo con salsa barbacoa	00:45:00	28.00
+15	2	Burger Gourmet	Hamburguesa con queso cheddar y tocino	00:20:00	16.00
+16	2	Tacos al Pastor	Tacos de cerdo con piña y cebolla	00:15:00	14.00
+17	3	Ensalada César	Ensalada con pollo, crutones y aderezo césar	00:10:00	12.00
+18	3	Sopa de Tomate	Sopa cremosa de tomate con albahaca	00:15:00	9.00
+19	3	Bruschetta	Pan tostado con tomate, ajo y albahaca	00:10:00	8.00
+20	3	Empanadas	Empanadas de carne y queso	00:15:00	10.00
+21	3	Ceviche	Ceviche de pescado con limón y cilantro	00:20:00	14.00
+22	3	Tartar de Atún	Tartar de atún con aguacate y salsa de soya	00:15:00	16.00
+23	3	Calamares Fritos	Calamares crujientes con salsa de ajo	00:12:00	13.00
+24	3	Nachos con Queso	Nachos con queso fundido y jalapeños	00:10:00	11.00
+25	4	Tiramisú	Postre italiano con café y mascarpone	00:15:00	10.00
+26	4	Cheesecake	Tarta de queso con salsa de frutos rojos	00:20:00	12.00
+27	4	Flan	Flan de caramelo	00:10:00	8.00
+28	4	Brownie	Brownie de chocolate con helado	00:10:00	9.00
+29	4	Mousse de Chocolate	Mousse suave de chocolate	00:15:00	11.00
+30	4	Crema Catalana	Crema quemada con azúcar caramelizado	00:15:00	10.00
+\.
+
+
+--
+-- Data for Name: preparaciones; Type: TABLE DATA; Schema: public; Owner: estudiante
+--
+
+COPY public.preparaciones (id, cocinero_id, orden_id) FROM stdin;
+\.
+
+
+--
+-- Data for Name: reservaciones; Type: TABLE DATA; Schema: public; Owner: estudiante
+--
+
+COPY public.reservaciones (id, cliente_id, cantidad, estado) FROM stdin;
+5	3	5	0
+6	3	6	0
+7	3	2	0
+8	4	2	0
+9	5	5	0
+10	5	5	0
+11	5	2	0
+12	6	2	0
+13	6	4	0
+14	7	6	0
+15	7	3	0
+16	7	3	0
+17	8	3	0
+1	1	3	1
+2	1	4	1
+3	1	6	1
+4	2	5	1
+\.
+
+
+--
+-- Data for Name: roles; Type: TABLE DATA; Schema: public; Owner: estudiante
+--
+
+COPY public.roles (id, nombre) FROM stdin;
+1	mesero
+2	cocinero
+3	barman
+\.
+
+
+--
+-- Data for Name: tipos; Type: TABLE DATA; Schema: public; Owner: estudiante
+--
+
+COPY public.tipos (id, nombre) FROM stdin;
+1	Bebida
+2	Plato Fuerte
+3	Entrada
+4	Postre
+\.
+
+
+--
+-- Data for Name: usuarios; Type: TABLE DATA; Schema: public; Owner: estudiante
+--
+
+COPY public.usuarios (id, nombre, clave, fecha_clave) FROM stdin;
+1	Carlos FernáNdez PéRez	\\x636c61766533	2025-03-22 16:35:33.448307
+2	Ana FernáNdez SáNchez	\\x636c61766534	2025-03-22 16:35:33.448307
+3	Ana GonzáLez PéRez	\\x636c61766535	2025-03-22 16:35:33.448307
+4	Carlos FernáNdez GóMez	\\x636c61766534	2025-03-22 16:35:33.448307
+5	Carlos RodríGuez SáNchez	\\x636c61766531	2025-03-22 16:35:33.448307
+6	Isabel HernáNdez DíAz	\\x636c61766531	2025-03-22 16:35:33.452958
+7	Isabel JiméNez DíAz	\\x636c61766532	2025-03-22 16:35:33.452958
+8	Jorge Torres López	\\x636c6176656261726d616e	2025-03-22 16:35:33.454688
+\.
+
+
+--
+-- Name: actuaciones_id_seq; Type: SEQUENCE SET; Schema: public; Owner: estudiante
+--
+
+SELECT pg_catalog.setval('public.actuaciones_id_seq', 8, true);
+
+
+--
+-- Name: especialidades_id_seq; Type: SEQUENCE SET; Schema: public; Owner: estudiante
+--
+
+SELECT pg_catalog.setval('public.especialidades_id_seq', 54, true);
+
+
+--
+-- Name: horarios_id_seq; Type: SEQUENCE SET; Schema: public; Owner: estudiante
+--
+
+SELECT pg_catalog.setval('public.horarios_id_seq', 17, true);
+
+
+--
+-- Name: mesas_id_seq; Type: SEQUENCE SET; Schema: public; Owner: estudiante
+--
+
+SELECT pg_catalog.setval('public.mesas_id_seq', 10, true);
+
+
+--
+-- Name: ordenes_id_seq; Type: SEQUENCE SET; Schema: public; Owner: estudiante
+--
+
+SELECT pg_catalog.setval('public.ordenes_id_seq', 148, true);
+
+
+--
+-- Name: pedidos_id_seq; Type: SEQUENCE SET; Schema: public; Owner: estudiante
+--
+
+SELECT pg_catalog.setval('public.pedidos_id_seq', 37, true);
+
+
+--
+-- Name: platos_id_seq; Type: SEQUENCE SET; Schema: public; Owner: estudiante
+--
+
+SELECT pg_catalog.setval('public.platos_id_seq', 30, true);
+
+
+--
+-- Name: preparaciones_id_seq; Type: SEQUENCE SET; Schema: public; Owner: estudiante
+--
+
+SELECT pg_catalog.setval('public.preparaciones_id_seq', 1, false);
+
+
+--
+-- Name: reservaciones_id_seq; Type: SEQUENCE SET; Schema: public; Owner: estudiante
+--
+
+SELECT pg_catalog.setval('public.reservaciones_id_seq', 17, true);
+
+
+--
+-- Name: roles_id_seq; Type: SEQUENCE SET; Schema: public; Owner: estudiante
+--
+
+SELECT pg_catalog.setval('public.roles_id_seq', 3, true);
+
+
+--
+-- Name: tipos_id_seq; Type: SEQUENCE SET; Schema: public; Owner: estudiante
+--
+
+SELECT pg_catalog.setval('public.tipos_id_seq', 4, true);
+
+
+--
+-- Name: usuarios_id_seq; Type: SEQUENCE SET; Schema: public; Owner: estudiante
+--
+
+SELECT pg_catalog.setval('public.usuarios_id_seq', 8, true);
+
+
+--
+-- Name: actuaciones actuaciones_pkey; Type: CONSTRAINT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.actuaciones
+    ADD CONSTRAINT actuaciones_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: especialidades especialidades_pkey; Type: CONSTRAINT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.especialidades
+    ADD CONSTRAINT especialidades_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: horarios horarios_pkey; Type: CONSTRAINT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.horarios
+    ADD CONSTRAINT horarios_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: mesas mesas_pkey; Type: CONSTRAINT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.mesas
+    ADD CONSTRAINT mesas_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: ordenes ordenes_pkey; Type: CONSTRAINT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.ordenes
+    ADD CONSTRAINT ordenes_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: pedidos pedidos_pkey; Type: CONSTRAINT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.pedidos
+    ADD CONSTRAINT pedidos_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: platos platos_pkey; Type: CONSTRAINT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.platos
+    ADD CONSTRAINT platos_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: preparaciones preparaciones_pkey; Type: CONSTRAINT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.preparaciones
+    ADD CONSTRAINT preparaciones_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: reservaciones reservaciones_pkey; Type: CONSTRAINT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.reservaciones
+    ADD CONSTRAINT reservaciones_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: roles roles_pkey; Type: CONSTRAINT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.roles
+    ADD CONSTRAINT roles_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: tipos tipos_pkey; Type: CONSTRAINT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.tipos
+    ADD CONSTRAINT tipos_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: usuarios usuarios_pkey; Type: CONSTRAINT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.usuarios
+    ADD CONSTRAINT usuarios_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: idx_ordenes_entregado; Type: INDEX; Schema: public; Owner: estudiante
+--
+
+CREATE INDEX idx_ordenes_entregado ON public.ordenes USING btree (entregado);
+
+
+--
+-- Name: idx_pedidos_solicitado; Type: INDEX; Schema: public; Owner: estudiante
+--
+
+CREATE INDEX idx_pedidos_solicitado ON public.pedidos USING btree (solicitado);
+
+
+--
+-- Name: ordenes tr_validar_entregado; Type: TRIGGER; Schema: public; Owner: estudiante
+--
+
+CREATE TRIGGER tr_validar_entregado BEFORE INSERT OR UPDATE ON public.ordenes FOR EACH ROW EXECUTE FUNCTION public.fn_validar_entregado();
+
+
+--
+-- Name: ordenes tr_validar_fechas_pedido; Type: TRIGGER; Schema: public; Owner: estudiante
+--
+
+CREATE TRIGGER tr_validar_fechas_pedido BEFORE INSERT OR UPDATE ON public.ordenes FOR EACH ROW EXECUTE FUNCTION public.fn_validar_fechas_pedido();
+
+
+--
+-- Name: especialidades trigger_validar_cocinero_especialidades; Type: TRIGGER; Schema: public; Owner: estudiante
+--
+
+CREATE TRIGGER trigger_validar_cocinero_especialidades BEFORE INSERT OR UPDATE ON public.especialidades FOR EACH ROW EXECUTE FUNCTION public.validar_cocinero();
+
+
+--
+-- Name: preparaciones trigger_validar_cocinero_preparaciones; Type: TRIGGER; Schema: public; Owner: estudiante
+--
+
+CREATE TRIGGER trigger_validar_cocinero_preparaciones BEFORE INSERT OR UPDATE ON public.preparaciones FOR EACH ROW EXECUTE FUNCTION public.validar_cocinero();
+
+
+--
+-- Name: pedidos trigger_validar_mesero; Type: TRIGGER; Schema: public; Owner: estudiante
+--
+
+CREATE TRIGGER trigger_validar_mesero BEFORE INSERT OR UPDATE ON public.pedidos FOR EACH ROW EXECUTE FUNCTION public.validar_mesero();
+
+
+--
+-- Name: actuaciones actuaciones_rol_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.actuaciones
+    ADD CONSTRAINT actuaciones_rol_id_fkey FOREIGN KEY (rol_id) REFERENCES public.roles(id);
+
+
+--
+-- Name: actuaciones actuaciones_usuario_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.actuaciones
+    ADD CONSTRAINT actuaciones_usuario_id_fkey FOREIGN KEY (usuario_id) REFERENCES public.usuarios(id);
+
+
+--
+-- Name: especialidades especialidades_cocinero_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.especialidades
+    ADD CONSTRAINT especialidades_cocinero_id_fkey FOREIGN KEY (cocinero_id) REFERENCES public.usuarios(id);
+
+
+--
+-- Name: especialidades especialidades_plato_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.especialidades
+    ADD CONSTRAINT especialidades_plato_id_fkey FOREIGN KEY (plato_id) REFERENCES public.platos(id);
+
+
+--
+-- Name: horarios horarios_mesa_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.horarios
+    ADD CONSTRAINT horarios_mesa_id_fkey FOREIGN KEY (mesa_id) REFERENCES public.mesas(id);
+
+
+--
+-- Name: horarios horarios_reservacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.horarios
+    ADD CONSTRAINT horarios_reservacion_id_fkey FOREIGN KEY (reservacion_id) REFERENCES public.reservaciones(id);
+
+
+--
+-- Name: ordenes ordenes_pedido_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.ordenes
+    ADD CONSTRAINT ordenes_pedido_id_fkey FOREIGN KEY (pedido_id) REFERENCES public.pedidos(id);
+
+
+--
+-- Name: ordenes ordenes_plato_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.ordenes
+    ADD CONSTRAINT ordenes_plato_id_fkey FOREIGN KEY (plato_id) REFERENCES public.platos(id);
+
+
+--
+-- Name: pedidos pedidos_cliente_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.pedidos
+    ADD CONSTRAINT pedidos_cliente_id_fkey FOREIGN KEY (cliente_id) REFERENCES public.usuarios(id);
+
+
+--
+-- Name: pedidos pedidos_mesero_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.pedidos
+    ADD CONSTRAINT pedidos_mesero_id_fkey FOREIGN KEY (mesero_id) REFERENCES public.usuarios(id);
+
+
+--
+-- Name: platos platos_tipo_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.platos
+    ADD CONSTRAINT platos_tipo_id_fkey FOREIGN KEY (tipo_id) REFERENCES public.tipos(id);
+
+
+--
+-- Name: preparaciones preparaciones_cocinero_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.preparaciones
+    ADD CONSTRAINT preparaciones_cocinero_id_fkey FOREIGN KEY (cocinero_id) REFERENCES public.usuarios(id);
+
+
+--
+-- Name: preparaciones preparaciones_orden_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.preparaciones
+    ADD CONSTRAINT preparaciones_orden_id_fkey FOREIGN KEY (orden_id) REFERENCES public.ordenes(id);
+
+
+--
+-- Name: reservaciones reservaciones_cliente_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: estudiante
+--
+
+ALTER TABLE ONLY public.reservaciones
+    ADD CONSTRAINT reservaciones_cliente_id_fkey FOREIGN KEY (cliente_id) REFERENCES public.usuarios(id);
+
+
+--
+-- PostgreSQL database dump complete
+--
+
+\unrestrict hKSCBNLNDBcjZx7TTeWo8ggLlR0PvZmqK5tIFhIT2RSMwbmkXBgB7wwGZVlTXb5
+

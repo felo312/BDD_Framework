@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gourmet Dashboard | Panel Principal</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./css/index.css">
+    <style>
+        .dashboard-container {
+            width: 100%;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            z-index: 1;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 40px;
+            padding: 20px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(16px);
+            border-radius: 16px;
+            border: 1px solid var(--glass-border);
+        }
+        .btn-logout {
+            background: var(--danger);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="background-mesh"></div>
+    
+    <div class="dashboard-container">
+        <header class="header">
+            <div class="logo-section" style="margin-bottom: 0; display: flex; align-items: center; gap: 10px;">
+                <h1 style="font-size: 24px;">Gourmet <span>System</span></h1>
+            </div>
+            <div>
+                <span id="userGreeting" style="margin-right: 20px;">Cargando...</span>
+                <button class="btn-logout" id="logoutBtn">Cerrar Sesión</button>
+            </div>
+        </header>
+        
+        <main>
+            <div class="login-glass-card" style="max-width: 100%; text-align: center;">
+                <h2>Bienvenido al panel de control</h2>
+                <p style="color: var(--text-muted); margin-top: 10px;">Aquí se implementarán los módulos de mesas, pedidos y reservas según tu rol.</p>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // Verificación rápida de token (Seguridad de Canal)
+        const token = localStorage.getItem('access_token');
+        if (!token) {
+            window.location.href = 'index.html';
+        } else {
+            // Decodificar JWT para obtener el nombre (payload sub)
+            try {
+                const payload = JSON.parse(atob(token.split('.')[1]));
+                document.getElementById('userGreeting').textContent = `Hola, ${payload.sub}`;
+            } catch (e) {
+                document.getElementById('userGreeting').textContent = `Hola, Usuario`;
+            }
+        }
+
+        document.getElementById('logoutBtn').addEventListener('click', () => {
+            localStorage.removeItem('access_token');
+            window.location.href = 'index.html';
+        });
+    </script>
+</body>
+</html>

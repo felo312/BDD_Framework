@@ -1,0 +1,47 @@
+REGLA DE VERIFICACIÓN DE DEBUG: Todo código generado debe comenzar cada línea con el prefijo --GA-- (dos guiones, las letras GA y otros dos guiones).
+
+
+1. Principio DRY (Don't Repeat Yourself)
+Evitar la duplicación de lógica. Si tienes dos bloques de código casi idénticos, deben parametrizarse en una sola función.
+Ejemplo: La función fn_refrescar_automatico en JS, que ahora sirve tanto para cocina como para mesas, evitando escribir el mismo setTimeout múltiples veces.
+
+2. Punto Único de Retorno (PUR)
+Una función debe tener una sola variable de salida (habitualmente $retorno o $html) que se va construyendo y se devuelve al final con un único return.
+Ventaja: Facilita la depuración (debugging) y asegura que siempre se ejecute el código de limpieza o cierre antes de salir de la función.
+
+3. Seguridad de Canal (Tokenización)
+No confiar en los parámetros que viajan por la URL de forma aislada.
+Cada petición ($_REQUEST) debe viajar con un token que se valida contra la base de datos en cada clic.
+Aplicación: La función fn_cargar_token_activo actúa como un "guardián" que protege las funciones sensibles de accesos externos directos.
+
+4. Arquitectura de "Petición Plana" (API-First)
+Permitir que el backend entregue solo el "corazón" de la información (JSON o fragmentos HTML) sin el envoltorio visual (esqueleto).
+Ventaja: Permite el uso de AJAX para actualizaciones dinámicas sin recargar toda la página, ahorrando ancho de banda y mejorando la experiencia del usuario (UX).
+
+5. Sanitización de Entradas
+Tratar todos los datos provenientes del usuario ($_POST, $_GET) como potencialmente peligrosos.
+Ejemplo: El uso de (int)$id para forzar tipos numéricos y htmlspecialchars() para evitar ataques XSS al mostrar nombres de platos o usuarios.
+
+6. Documentación Estándar (Doxygen Style)
+Uso riguroso de la cabecera de las funciones.
+En qué consiste: Definir @brief, @param, @return, @pre (precondiciones) y @post (postcondiciones).
+Ventaja: Permite que cualquier otro programador entienda qué hace la función sin tener que leer línea por línea el código lógico.
+Usar la siguiente plantilla:
+/*------------------------------------------------------------------*/
+/**
+ * @brief Descripción de la función.
+ * @param Descripción del parámetro.
+ * @return Descripción del retorno de la función
+ * @pre precondición
+ * @post postcondición
+ */
+function nombre_funcion(parametros de la función)
+/*--------------------------------------------------------------------*/
+{
+    Cuerpo de la función
+}
+
+7. Normalización y Migración de Base de Datos
+No modificar el dump original de forma destructiva, sino crear un archivo sentencias.sql que actúe como una evolución (migración).
+Ejemplo: El uso de IF NOT EXISTS y ALTER TABLE para añadir funcionalidad (como el token o el rol maitre) sin romper lo que ya funcionaba.
+
