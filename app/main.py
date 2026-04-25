@@ -59,6 +59,11 @@ def get_empleados(db: Session = Depends(database.get_db), current_user: models.U
     resultado = []
     for u in usuarios:
         roles = [r.nombre for r in u.roles]
+        
+        # Filtrar: Si solo es cliente, no es empleado
+        if "Cliente" in roles and len(roles) == 1:
+            continue
+            
         especialidades = []
         if "Cocinero" in roles:
             esps = db.query(models.Especialidad).filter(models.Especialidad.cocinero_id == u.id).all()

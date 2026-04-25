@@ -531,7 +531,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function loadClientesView() {
         const container = document.getElementById('clientesListTable');
         if (!container) return;
-        
+
         try {
             const clientes = await fetchAPI('/clientes/');
             container.innerHTML = '';
@@ -576,7 +576,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             const res = await fetchAPI(`/clientes/${cliente_id}/historial`);
-            
+
             let totalInvertido = res.historial.reduce((acc, p) => acc + parseFloat(p.total), 0);
 
             resultDiv.innerHTML = `

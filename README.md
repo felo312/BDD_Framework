@@ -8,7 +8,8 @@
 *   **Base de Datos**: **SQLAlchemy** con **PostgreSQL** (Motor robusto y relacional).
 *   **Driver**: `psycopg2` para la conexión con el servidor de base de datos.
 *   **Frontend**: HTML5, CSS3 (Vanilla) y JavaScript (Vanilla) con estética **Glassmorphism**.
-*   **Seguridad**: Autenticación **JWT** (JSON Web Tokens) y cifrado de contraseñas.
+*   **Seguridad**: Autenticación **JWT** (JSON Web Tokens) y cifrado de contraseñas (SHA-256).
+*   **Base de Datos**: PostgreSQL corriendo en el puerto **5433** (configurado en `app/database.py`).
 
 ---
 
@@ -33,9 +34,9 @@ python populate_db.py
 ### 4. Ejecución del Servidor
 Inicia el backend con Uvicorn:
 ```bash
-uvicorn app.main:app --reload --port 8001
+uvicorn app.main:app --reload
 ```
-*El sistema está configurado para correr en el puerto **8001** para evitar conflictos.*
+*El sistema está configurado para correr en el puerto **8000** por defecto.*
 
 ### 5. Acceso a la Aplicación
 Abre el archivo `frontend/index.html` en tu navegador.
