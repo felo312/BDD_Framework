@@ -34,7 +34,7 @@ app.add_middleware(
 # GESTIÓN DE EMPLEADOS / USUARIOS (CRUD)
 # ==========================================
 @app.post("/usuarios/", response_model=schemas.Usuario)
-def create_user(user: schemas.UsuarioCreate, db: Session = Depends(database.get_db)):
+def create_user(user: schemas.UsuarioCreate, db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(security.RoleChecker(["Administrador"]))):
     db_rol = db.query(models.Rol).filter(models.Rol.id == user.rol_id).first()
     if not db_rol:
         raise HTTPException(status_code=400, detail=f"El rol_id {user.rol_id} no existe en la BD.")
@@ -86,6 +86,22 @@ def delete_empleado(empleado_id: int, db: Session = Depends(database.get_db), cu
     db.commit()
     return {"status": "ok", "message": "Empleado eliminado"}
 
+@app.put("/empleados/{empleado_id}")
+def update_empleado(empleado_id: int, user: schemas.UsuarioCreate, db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(security.RoleChecker(["Administrador"]))):
+    emp = db.query(models.Usuario).filter(models.Usuario.id == empleado_id).first()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Empleado no encontrado")
+        
+    emp.nombre = user.nombre
+    if user.clave:
+        emp.clave = security.get_password_hash(user.clave)
+    db.commit()
+    
+    db.query(models.Actuacion).filter(models.Actuacion.usuario_id == empleado_id).delete()
+    db.add(models.Actuacion(rol_id=user.rol_id, usuario_id=empleado_id))
+    db.commit()
+    return {"status": "ok", "message": "Empleado actualizado"}
+
 # ==========================================
 # SEGURIDAD Y LOGIN
 # ==========================================
@@ -123,8 +139,9 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
         db.commit()
 
     access_token_expires = datetime.timedelta(minutes=security.ACCESS_TOKEN_EXPIRE_MINUTES)
+    roles = [r.nombre for r in user.roles]
     access_token = security.create_access_token(
-        data={"sub": user.nombre}, expires_delta=access_token_expires
+        data={"sub": user.nombre, "roles": roles}, expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
@@ -139,6 +156,14 @@ def create_mesa(mesa: schemas.MesaCreate, db: Session = Depends(database.get_db)
     db.refresh(db_mesa)
     return db_mesa
 
+@app.get("/mesas/")
+def get_mesas(db: Session = Depends(database.get_db)):
+    return db.query(models.Mesa).order_by(models.Mesa.id).all()
+
+@app.get("/platos/")
+def get_platos(db: Session = Depends(database.get_db)):
+    return db.query(models.Plato).order_by(models.Plato.id).all()
+
 @app.patch("/mesas/{mesa_id}/estado")
 def update_mesa_estado(mesa_id: int, estado: str, db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(security.RoleChecker(["Maitre", "Mesero"]))):
     # Estados permitidos: Disponible, Reservada, Ocupada
@@ -152,6 +177,18 @@ def update_mesa_estado(mesa_id: int, estado: str, db: Session = Depends(database
     db_mesa.estado = estado
     db.commit()
     return {"status": "ok", "mesa_id": mesa_id, "nuevo_estado": estado}
+
+@app.put("/mesas/{mesa_id}", response_model=schemas.Mesa)
+def update_mesa(mesa_id: int, mesa_data: schemas.MesaCreate, db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(security.RoleChecker(["Administrador", "Maitre"]))):
+    db_mesa = db.query(models.Mesa).filter(models.Mesa.id == mesa_id).first()
+    if not db_mesa:
+        raise HTTPException(status_code=404, detail="Mesa no encontrada")
+    
+    db_mesa.sillas = mesa_data.sillas
+    db_mesa.estado = mesa_data.estado
+    db.commit()
+    db.refresh(db_mesa)
+    return db_mesa
 
 # ==========================================
 # VALIDACIÓN DE CUPO Y RESERVAS
@@ -251,6 +288,29 @@ def reportes_dashboard(db: Session = Depends(database.get_db), current_user: mod
         "frecuencia_consumo": historico,
         "total_historico_pedidos": sum([r.cantidad for r in pedidos_fecha])
     }
+
+@app.get("/reportes/pedidos/detallados")
+def get_all_pedidos_detallados(db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(security.RoleChecker(["Administrador"]))):
+    pedidos = db.query(models.Pedido).order_by(models.Pedido.fecha.desc()).all()
+    resultado = []
+    for p in pedidos:
+        ordenes = db.query(models.Orden).filter(models.Orden.pedido_id == p.id).all()
+        items = []
+        for o in ordenes:
+            plato = db.query(models.Plato).filter(models.Plato.id == o.plato_id).first()
+            items.append({
+                "plato": plato.nombre if plato else "Desconocido",
+                "cantidad": o.cantidad,
+                "subtotal": float(plato.precio * o.cantidad) if plato else 0.0
+            })
+        resultado.append({
+            "id": p.id,
+            "fecha": p.fecha,
+            "mesa_id": p.mesa_id,
+            "total": float(p.total),
+            "items": items
+        })
+    return resultado
 
 # ==========================================
 # HISTORIAL DE CLIENTES

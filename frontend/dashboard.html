@@ -4,79 +4,193 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gourmet Dashboard | Panel Principal</title>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="./css/index.css">
-    <style>
-        .dashboard-container {
-            width: 100%;
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 40px 20px;
-            z-index: 1;
-        }
-        .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 40px;
-            padding: 20px;
-            background: var(--glass-bg);
-            backdrop-filter: blur(16px);
-            border-radius: 16px;
-            border: 1px solid var(--glass-border);
-        }
-        .btn-logout {
-            background: var(--danger);
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 600;
-        }
-    </style>
+    <link rel="stylesheet" href="./css/dashboard.css">
+    <!-- Iconos Phosphor Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
 </head>
 <body>
     <div class="background-mesh"></div>
     
-    <div class="dashboard-container">
-        <header class="header">
-            <div class="logo-section" style="margin-bottom: 0; display: flex; align-items: center; gap: 10px;">
-                <h1 style="font-size: 24px;">Gourmet <span>System</span></h1>
+    <div class="app-layout">
+        <!-- Sidebar -->
+        <aside class="sidebar glass-panel">
+            <div class="logo-section-small">
+                <div class="logo-circle-small">
+                    <i class="ph ph-fork-knife"></i>
+                </div>
+                <h2>Gourmet<span>Sys</span></h2>
             </div>
-            <div>
-                <span id="userGreeting" style="margin-right: 20px;">Cargando...</span>
-                <button class="btn-logout" id="logoutBtn">Cerrar Sesión</button>
+
+            <nav class="sidebar-nav">
+                <button class="nav-btn active" data-target="view-reportes" id="nav-reportes">
+                    <i class="ph ph-chart-line-up"></i>
+                    <span>Dashboard</span>
+                </button>
+                <button class="nav-btn" data-target="view-mesas" id="nav-mesas">
+                    <i class="ph ph-armchair"></i>
+                    <span>Mesas</span>
+                </button>
+                <button class="nav-btn" data-target="view-pedidos" id="nav-pedidos">
+                    <i class="ph ph-receipt"></i>
+                    <span>Pedidos</span>
+                </button>
+                <button class="nav-btn" data-target="view-empleados" id="nav-empleados">
+                    <i class="ph ph-users"></i>
+                    <span>Empleados</span>
+                </button>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="user-info">
+                    <i class="ph ph-user-circle"></i>
+                    <div>
+                        <p id="userNameDisplay" class="user-name">Usuario</p>
+                        <p class="user-role">Activo</p>
+                    </div>
+                </div>
+                <button class="btn-logout" id="logoutBtn">
+                    <i class="ph ph-sign-out"></i>
+                </button>
             </div>
-        </header>
-        
-        <main>
-            <div class="login-glass-card" style="max-width: 100%; text-align: center;">
-                <h2>Bienvenido al panel de control</h2>
-                <p style="color: var(--text-muted); margin-top: 10px;">Aquí se implementarán los módulos de mesas, pedidos y reservas según tu rol.</p>
-            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- View: Reportes -->
+            <section id="view-reportes" class="view-section active">
+                <header class="section-header">
+                    <h1>Inteligencia de Negocio</h1>
+                    <p>Resumen histórico de ingresos y rendimiento.</p>
+                </header>
+                <div class="stats-grid">
+                    <div class="stat-card glass-panel">
+                        <div class="stat-icon" style="color: var(--accent); background: rgba(16, 185, 129, 0.1);"><i class="ph ph-currency-dollar"></i></div>
+                        <div class="stat-details">
+                            <h3>Ingresos Totales</h3>
+                            <p id="stat-ingresos">$0.00</p>
+                        </div>
+                    </div>
+                    <div class="stat-card glass-panel">
+                        <div class="stat-icon" style="color: var(--primary); background: rgba(59, 130, 246, 0.1);"><i class="ph ph-receipt"></i></div>
+                        <div class="stat-details">
+                            <h3>Pedidos Históricos</h3>
+                            <p id="stat-pedidos">0</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="chart-container glass-panel" style="margin-top:24px;">
+                    <h3 style="margin-bottom:20px;">Historial Detallado de Pedidos</h3>
+                    <div class="table-container">
+                        <table class="glass-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Fecha</th>
+                                    <th>Mesa</th>
+                                    <th>Items</th>
+                                    <th>Total</th>
+                                </tr>
+                            </thead>
+                            <tbody id="detalladosTableBody">
+                                <!-- Pedidos inyectados -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- View: Mesas -->
+            <section id="view-mesas" class="view-section">
+                <header class="section-header">
+                    <h1>Gestión de Mesas</h1>
+                    <p>Control visual del estado de las mesas.</p>
+                </header>
+                <div class="mesas-grid" id="mesasGrid">
+                    <!-- Mesas inyectadas -->
+                </div>
+            </section>
+
+            <!-- View: Pedidos -->
+            <section id="view-pedidos" class="view-section">
+                <header class="section-header">
+                    <h1>Registro de Pedidos</h1>
+                    <p>Toma la orden de una mesa activa.</p>
+                </header>
+                <div class="pedido-layout">
+                    <div class="pedido-form glass-panel">
+                        <form id="formNuevoPedido">
+                            <div class="input-group">
+                                <label>Mesa Asignada</label>
+                                <select id="select-mesa" required class="glass-input">
+                                    <option value="">Seleccione una mesa...</option>
+                                </select>
+                            </div>
+                            <div class="input-group">
+                                <label>Plato</label>
+                                <select id="select-plato" class="glass-input">
+                                    <option value="1">Empanadas ($5.00)</option>
+                                    <option value="2">Churrasco ($15.00)</option>
+                                    <option value="3">Tiramisú ($6.00)</option>
+                                </select>
+                            </div>
+                            <button type="button" class="btn-secondary" id="btnAddPlato">
+                                <i class="ph ph-plus"></i> Añadir a la orden
+                            </button>
+                            <br><br>
+                            <div class="orden-preview" id="ordenPreview">
+                                <!-- Items de orden -->
+                            </div>
+                            <button type="submit" class="submit-btn" style="margin-top:20px;">Enviar a Cocina</button>
+                        </form>
+                    </div>
+                </div>
+            </section>
+
+            <!-- View: Empleados -->
+            <section id="view-empleados" class="view-section">
+                <header class="section-header" style="display:flex; justify-content:space-between; align-items:flex-end;">
+                    <div>
+                        <h1>Gestión de Empleados</h1>
+                        <p>Administración del talento humano.</p>
+                    </div>
+                    <button class="submit-btn" style="width:auto; padding:10px 20px;" onclick="window.crearEmpleado()"><i class="ph ph-plus"></i> Nuevo Empleado</button>
+                </header>
+                <div class="table-container glass-panel">
+                    <table class="glass-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Nombre</th>
+                                <th>Roles</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="empleadosTableBody">
+                            <!-- Empleados inyectados -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
         </main>
     </div>
 
-    <script>
-        // Verificación rápida de token (Seguridad de Canal)
-        const token = localStorage.getItem('access_token');
-        if (!token) {
-            window.location.href = 'index.html';
-        } else {
-            // Decodificar JWT para obtener el nombre (payload sub)
-            try {
-                const payload = JSON.parse(atob(token.split('.')[1]));
-                document.getElementById('userGreeting').textContent = `Hola, ${payload.sub}`;
-            } catch (e) {
-                document.getElementById('userGreeting').textContent = `Hola, Usuario`;
-            }
-        }
+    <!-- Modal Genérico -->
+    <div id="appModal" class="modal-overlay">
+        <div class="modal-glass-card">
+            <h2 id="modalTitle">Título</h2>
+            <div id="modalBody" class="modal-body"></div>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" onclick="window.closeModal()" style="margin-top:0;">Cancelar</button>
+                <button type="button" class="submit-btn" id="modalSaveBtn" style="width:auto; padding:10px 20px;">Guardar</button>
+            </div>
+        </div>
+    </div>
 
-        document.getElementById('logoutBtn').addEventListener('click', () => {
-            localStorage.removeItem('access_token');
-            window.location.href = 'index.html';
-        });
-    </script>
+    <!-- Script API -->
+    <script src="./js/api.js"></script>
+    <script src="./js/dashboard.js"></script>
 </body>
 </html>
