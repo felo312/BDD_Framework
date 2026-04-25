@@ -44,6 +44,10 @@
                     <i class="ph ph-address-book"></i>
                     <span>Clientes</span>
                 </button>
+                <button class="nav-btn" data-target="view-cocina" id="nav-cocina">
+                    <i class="ph ph-fire"></i>
+                    <span>Cocina</span>
+                </button>
             </nav>
 
             <div class="sidebar-footer">
@@ -172,7 +176,16 @@
                                     <input type="number" id="input-personas" class="glass-input" value="1" min="1" required>
                                 </div>
                             </div>
-                            <div class="input-group">
+                            <div class="input-group" style="margin-top:15px;">
+                                <label>Asociar Cliente</label>
+                                <div style="display:flex; gap:10px;">
+                                    <select id="select-cliente-pedido" class="glass-input" required>
+                                        <option value="">Cargando clientes...</option>
+                                    </select>
+                                    <button type="button" class="btn-secondary" style="margin-top:0; white-space:nowrap;" onclick="window.crearRapidoCliente()"><i class="ph ph-user-plus"></i> Nuevo Cliente</button>
+                                </div>
+                            </div>
+                            <div class="input-group" style="margin-top:15px;">
                                 <label>Plato</label>
                                 <select id="select-plato" class="glass-input">
                                     <optgroup label="Entradas" id="opt-entradas"></optgroup>
@@ -223,17 +236,42 @@
             <!-- View: Clientes -->
             <section id="view-clientes" class="view-section">
                 <header class="section-header">
-                    <h1>Historial de Clientes</h1>
-                    <p>Seguimiento de consumos previos y personalización.</p>
+                    <h1>Gestión de Clientes</h1>
+                    <p>Directorio de clientes y seguimiento de fidelización.</p>
                 </header>
-                <div class="glass-panel" style="padding:30px; border-radius:16px;">
-                    <div style="display:flex; gap:10px; margin-bottom:30px;">
-                        <input type="number" id="input-search-cliente" class="glass-input" placeholder="Ingrese ID del Cliente (ej: 1)">
-                        <button class="submit-btn" style="width:auto; padding:0 20px;" onclick="window.buscarHistorialCliente()">Consultar Historial</button>
+                <div style="display:grid; grid-template-columns: 350px 1fr; gap:20px; align-items:start;">
+                    <!-- Columna Izquierda: Lista de Clientes -->
+                    <div class="glass-panel" style="padding:20px; border-radius:16px; max-height:75vh; overflow-y:auto;">
+                        <div style="position:sticky; top:0; background:rgba(255,255,255,0.05); backdrop-filter:blur(10px); padding:10px 0; margin-bottom:15px; border-bottom:1px solid rgba(255,255,255,0.1); z-index:10;">
+                            <h3 style="font-size:16px; color:var(--primary); margin:0;">Directorio de Clientes</h3>
+                        </div>
+                        <div id="clientesListTable" style="display:flex; flex-direction:column; gap:8px;">
+                            <!-- Botones de cliente inyectados por JS -->
+                            <p style="color:var(--text-muted); font-size:14px; text-align:center; padding:20px;">Cargando clientes...</p>
+                        </div>
                     </div>
-                    <div id="clienteHistorialResult">
-                        <!-- Resultados inyectados -->
+                    
+                    <!-- Columna Derecha: Historial Detallado -->
+                    <div class="glass-panel" style="padding:30px; border-radius:16px; min-height:500px;">
+                        <div id="clienteHistorialResult">
+                            <div style="text-align:center; color:var(--text-muted); padding-top:120px;">
+                                <i class="ph ph-users-three" style="font-size:64px; opacity:0.2; margin-bottom:20px; display:block; margin-left:auto; margin-right:auto;"></i>
+                                <h3 style="font-weight:400;">Selecciona un cliente de la lista</h3>
+                                <p style="font-size:14px;">Aquí se mostrará su frecuencia de consumo y pedidos detallados.</p>
+                            </div>
+                        </div>
                     </div>
+                </div>
+            </section>
+
+            <!-- View: Cocina -->
+            <section id="view-cocina" class="view-section">
+                <header class="section-header">
+                    <h1>Módulo de Cocina</h1>
+                    <p>Órdenes pendientes por preparar.</p>
+                </header>
+                <div class="cocina-grid" id="cocinaGrid">
+                    <!-- Cards de cocina inyectadas -->
                 </div>
             </section>
 

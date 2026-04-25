@@ -26,12 +26,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!isAdmin) document.getElementById('nav-reportes').style.display = 'none';
     if (!isAdmin) document.getElementById('nav-empleados').style.display = 'none';
     if (!isMesero) document.getElementById('nav-pedidos').style.display = 'none';
-    // Admin ya no ve mesas, Maitre y Mesero sí (Maitre las gestiona, Mesero las usa)
-    if (!isMaitre && !isMesero) document.getElementById('nav-mesas').style.display = 'none';
+    // Admin y Maitre ven mesas, Mesero NO (él solo toma pedidos)
+    if (!isAdmin && !isMaitre) document.getElementById('nav-mesas').style.display = 'none';
     if (!isAdmin && !isMaitre) document.getElementById('nav-clientes').style.display = 'none';
+    // Admin NO ve cocina (solo Cocinero)
+    if (!isCocinero) document.getElementById('nav-cocina').style.display = 'none';
 
-    // Botón nueva mesa solo para Maitre
-    if (isMaitre) document.getElementById('btnNuevaMesa').style.display = 'block';
+    // Botón nueva mesa para Admin y Maitre
+    if (isAdmin || isMaitre) document.getElementById('btnNuevaMesa').style.display = 'block';
 
     // ==========================================
     // NAVEGACIÓN SPA
@@ -69,9 +71,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (viewId === 'view-mesas') await loadMesas();
             if (viewId === 'view-pedidos') await loadPedidosView();
             if (viewId === 'view-empleados') await loadEmpleados();
+            if (viewId === 'view-cocina') await loadCocina();
+            if (viewId === 'view-clientes') await loadClientesView();
         } catch (error) {
             console.error(`Error loading ${viewId}:`, error);
-            if(error.message.includes("Operación no permitida") || error.message.includes("403")) {
+            if (error.message.includes("Operación no permitida") || error.message.includes("403")) {
                 alert("No tienes permisos suficientes (Rol) para ver esta sección.");
             }
         }
@@ -90,7 +94,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 1. REPORTES
     async function loadReportes() {
         const periodo = document.getElementById('select-periodo-reporte')?.value || 'dia';
-        
+
         // Cargar Ventas y Reservas por Periodo
         let ventasData = [];
         let reservasData = [];
@@ -100,7 +104,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) {
             console.error("Error cargando métricas de periodo:", e);
         }
-        
+
         const totalVentasPeriodo = ventasData.reduce((sum, v) => sum + v.total, 0);
         const totalReservasPeriodo = reservasData.reduce((sum, r) => sum + r.cantidad, 0);
 
@@ -168,8 +172,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     tbody.appendChild(tr);
                 });
             }
-        } catch (e) { 
-            console.error("Error en Reportes Detallados:", e); 
+        } catch (e) {
+            console.error("Error en Reportes Detallados:", e);
         }
     }
     window.loadReportes = loadReportes; // Exponer globalmente
@@ -203,7 +207,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     window.eliminarMesa = async (id) => {
-        if(confirm('¿Deseas eliminar permanentemente esta mesa?')) {
+        if (confirm('¿Deseas eliminar permanentemente esta mesa?')) {
             try {
                 await fetchAPI(`/mesas/${id}`, { method: 'DELETE' });
                 window.closeModal();
@@ -218,7 +222,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const mesas = await fetchAPI('/mesas/');
         const grid = document.getElementById('mesasGrid');
         grid.innerHTML = '';
-        
+
         mesas.forEach(mesa => {
             const card = document.createElement('div');
             card.className = `mesa-card ${mesa.estado.toLowerCase()}`;
@@ -228,8 +232,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 <p style="color:var(--text-muted); font-size:14px; margin-bottom:10px;">Capacidad: ${mesa.sillas} pers.</p>
                 <div style="font-weight:600; text-transform:uppercase; font-size:12px;">${mesa.estado}</div>
             `;
-            
-            if (isMaitre || isMesero) {
+
+            if (isAdmin || isMaitre || isMesero) {
                 card.style.cursor = 'pointer';
                 card.addEventListener('click', async () => {
                     let bodyHtml = `
@@ -241,7 +245,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         </select>
                     `;
 
-                    if (isMaitre) {
+                    if (isAdmin || isMaitre) {
                         bodyHtml += `
                             <label>Cantidad de Sillas:</label>
                             <input type="number" id="modal-mesa-sillas" class="glass-input" value="${mesa.sillas}" min="1">
@@ -254,11 +258,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     window.openModal(`Gestionar Mesa ${mesa.id}`, bodyHtml, async () => {
                         const nuevoEstado = document.getElementById('modal-mesa-estado').value;
-                        
+
                         try {
-                            if (isMaitre) {
+                            if (isAdmin || isMaitre) {
                                 const nuevasSillas = document.getElementById('modal-mesa-sillas').value;
-                                await fetchAPI(`/mesas/${mesa.id}`, { 
+                                await fetchAPI(`/mesas/${mesa.id}`, {
                                     method: 'PUT',
                                     headers: { 'Content-Type': 'application/json' },
                                     body: JSON.stringify({ sillas: parseInt(nuevasSillas), estado: nuevoEstado })
@@ -290,13 +294,21 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         const platos = await fetchAPI('/platos/');
-        
+
+        // Cargar Clientes (Usamos el nuevo endpoint accesible para meseros)
+        const clientes = await fetchAPI('/clientes/');
+        const selectCliente = document.getElementById('select-cliente-pedido');
+        selectCliente.innerHTML = '<option value="">Seleccione Cliente...</option>';
+        clientes.forEach(c => {
+            selectCliente.innerHTML += `<option value="${c.id}">${c.nombre}</option>`;
+        });
+
         // Limpiar optgroups
         const optEntradas = document.getElementById('opt-entradas');
         const optFuertes = document.getElementById('opt-fuertes');
         const optPostres = document.getElementById('opt-postres');
         const optBebidas = document.getElementById('opt-bebidas');
-        
+
         optEntradas.innerHTML = '';
         optFuertes.innerHTML = '';
         optPostres.innerHTML = '';
@@ -304,7 +316,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         platos.forEach(p => {
             const option = `<option value="${p.id}" data-precio="${p.precio}" data-nombre="${p.nombre}">${p.nombre} (${formatCOP(p.precio)})</option>`;
-            
+
             // Asignar según tipo_id (basado en populate_db.py)
             // 1=Entrada, 2=Plato Fuerte, 3=Postre, 4=Bebida
             if (p.tipo_id === 1) optEntradas.innerHTML += option;
@@ -317,13 +329,13 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btnAddPlato').addEventListener('click', () => {
         const select = document.getElementById('select-plato');
         const selected = select.options[select.selectedIndex];
-        
+
         ordenActual.push({
             plato_id: parseInt(selected.value),
             nombre: selected.getAttribute('data-nombre'),
             cantidad: 1
         });
-        
+
         renderOrden();
     });
 
@@ -345,28 +357,52 @@ document.addEventListener('DOMContentLoaded', () => {
         renderOrden();
     };
 
+    window.crearRapidoCliente = () => {
+        window.openModal('Registrar Nuevo Cliente', `
+            <input type="text" id="cli-nombre" class="glass-input" placeholder="Nombre" required>
+            <input type="text" id="cli-apellido" class="glass-input" placeholder="Apellido" required>
+        `, async () => {
+            const nombre = document.getElementById('cli-nombre').value;
+            const apellido = document.getElementById('cli-apellido').value;
+            if (!nombre || !apellido) return alert("Nombre y apellido requeridos");
+
+            try {
+                const res = await fetchAPI(`/clientes-rapido?nombre=${nombre}&apellido=${apellido}`, { method: 'POST' });
+                alert(`Cliente registrado: ${res.nombre}`);
+                window.closeModal();
+                await loadPedidosView(); // Recargar selectores
+                document.getElementById('select-cliente-pedido').value = res.id;
+            } catch (e) {
+                alert(e.message);
+            }
+        });
+    };
+
     document.getElementById('formNuevoPedido').addEventListener('submit', async (e) => {
         e.preventDefault();
         const mesa_id = document.getElementById('select-mesa').value;
         const personas = document.getElementById('input-personas').value;
+        const cliente_id = document.getElementById('select-cliente-pedido').value;
+
         if (!mesa_id) return alert('Selecciona una mesa');
+        if (!cliente_id) return alert('Selecciona o crea un cliente');
         if (ordenActual.length === 0) return alert('Añade al menos un plato a la orden');
 
         try {
             const payload = {
-                cliente_id: 1,
-                mesero_id: 1,
+                cliente_id: parseInt(cliente_id),
+                mesero_id: currentUser.id || 1,
                 mesa_id: parseInt(mesa_id),
                 personas: parseInt(personas),
                 ordenes: ordenActual.map(o => ({ plato_id: o.plato_id, cantidad: o.cantidad }))
             };
-            
+
             const res = await fetchAPI('/pedidos/', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
-            
+
             alert(`✅ ${res.mensaje} (Total: ${formatCOP(res.total)})`);
             ordenActual = [];
             renderOrden();
@@ -382,7 +418,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const empleados = await fetchAPI('/empleados/');
         const tbody = document.getElementById('empleadosTableBody');
         tbody.innerHTML = '';
-        
+
         empleados.forEach(emp => {
             const editBtn = `<button class="action-btn" style="color:var(--primary); background:rgba(59,130,246,0.2)" onclick="window.editarEmpleado(${emp.id}, '${emp.nombre}')"><i class="ph ph-pencil"></i> Editar</button>`;
             const deleteBtn = `<button class="action-btn" onclick="window.eliminarEmpleado(${emp.id})"><i class="ph ph-trash"></i> Eliminar</button>`;
@@ -408,7 +444,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('modalTitle').textContent = title;
         document.getElementById('modalBody').innerHTML = bodyHtml;
         document.getElementById('appModal').classList.add('active');
-        
+
         const saveBtn = document.getElementById('modalSaveBtn');
         saveBtn.onclick = onSaveCallback; // Reasignar evento
     };
@@ -433,7 +469,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const clave = document.getElementById('emp-clave').value;
             const rol = document.getElementById('emp-rol').value;
 
-            if(!nombre || !clave || !rol) return alert("Completa todos los campos");
+            if (!nombre || !clave || !rol) return alert("Completa todos los campos");
 
             try {
                 await fetchAPI('/usuarios/', {
@@ -464,7 +500,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const clave = document.getElementById('emp-clave-edit').value;
             const rol = document.getElementById('emp-rol-edit').value;
 
-            if(!nombre) return alert("El nombre es requerido");
+            if (!nombre) return alert("El nombre es requerido");
 
             try {
                 await fetchAPI(`/empleados/${id}`, {
@@ -481,7 +517,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     window.eliminarEmpleado = async (id) => {
-        if(confirm('¿Seguro que deseas eliminar este empleado?')) {
+        if (confirm('¿Seguro que deseas eliminar este empleado?')) {
             try {
                 await fetchAPI(`/empleados/${id}`, { method: 'DELETE' });
                 loadEmpleados();
@@ -491,48 +527,138 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // 5. CLIENTES
-    window.buscarHistorialCliente = async () => {
-        const id = document.getElementById('input-search-cliente').value;
-        if(!id) return alert("Ingrese un ID");
-
+    // 5. CLIENTES (Administración e Historial)
+    async function loadClientesView() {
+        const container = document.getElementById('clientesListTable');
+        if (!container) return;
+        
         try {
-            const res = await fetchAPI(`/clientes/${id}/historial`);
-            const container = document.getElementById('clienteHistorialResult');
+            const clientes = await fetchAPI('/clientes/');
             container.innerHTML = '';
 
-            if(res.historial.length === 0) {
-                container.innerHTML = '<p style="color:var(--text-muted)">No hay registros para este cliente.</p>';
+            if (clientes.length === 0) {
+                container.innerHTML = '<p style="color:var(--text-muted); font-size:14px; text-align:center;">No hay clientes registrados.</p>';
                 return;
             }
 
-            container.innerHTML = `
-                <div style="margin-bottom:20px; font-weight:600;">Total Visitas: ${res.total_visitas}</div>
-                <div class="table-container">
+            clientes.forEach(c => {
+                const btn = document.createElement('button');
+                btn.className = 'nav-btn'; // Reusamos estilos de botón para coherencia
+                btn.style.width = '100%';
+                btn.style.justifyContent = 'flex-start';
+                btn.style.padding = '12px 15px';
+                btn.style.marginBottom = '4px';
+                btn.innerHTML = `
+                    <i class="ph ph-user" style="font-size:18px;"></i>
+                    <div style="text-align:left;">
+                        <div style="font-weight:600; font-size:14px;">${c.nombre}</div>
+                        <div style="font-size:11px; opacity:0.6;">ID: ${c.id}</div>
+                    </div>
+                `;
+                btn.onclick = () => {
+                    // Remover activo de otros botones de cliente
+                    container.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    window.buscarHistorialCliente(c.id);
+                };
+                container.appendChild(btn);
+            });
+        } catch (e) {
+            container.innerHTML = `<p style="color:var(--danger); font-size:12px;">Error al cargar: ${e.message}</p>`;
+        }
+    }
+
+    window.buscarHistorialCliente = async (cliente_id) => {
+        const resultDiv = document.getElementById('clienteHistorialResult');
+        if (!resultDiv) return;
+
+        resultDiv.innerHTML = '<div style="text-align:center; padding-top:100px;"><i class="ph ph-circle-notch-bold spinning" style="font-size:32px;"></i><p>Cargando historial...</p></div>';
+
+        try {
+            const res = await fetchAPI(`/clientes/${cliente_id}/historial`);
+            
+            let totalInvertido = res.historial.reduce((acc, p) => acc + parseFloat(p.total), 0);
+
+            resultDiv.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:start; margin-bottom:30px; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:20px;">
+                    <div>
+                        <h2 style="margin:0; font-size:24px;">Historial de Consumo</h2>
+                        <p style="color:var(--text-muted); margin:5px 0 0 0;">ID Cliente: ${res.cliente_id}</p>
+                    </div>
+                    <div style="text-align:right;">
+                        <div style="font-size:12px; text-transform:uppercase; opacity:0.6;">Total Visitas</div>
+                        <div style="font-size:24px; font-weight:700; color:var(--primary);">${res.total_visitas}</div>
+                    </div>
+                </div>
+
+                <div class="stats-grid" style="grid-template-columns: 1fr 1fr; gap:20px; margin-bottom:30px;">
+                    <div class="stat-card glass-panel" style="padding:15px;">
+                        <div style="font-size:12px; opacity:0.7;">Inversión Total</div>
+                        <div style="font-size:20px; font-weight:700; color:var(--accent);">${formatCOP(totalInvertido)}</div>
+                    </div>
+                    <div class="stat-card glass-panel" style="padding:15px;">
+                        <div style="font-size:12px; opacity:0.7;">Promedio por Pedido</div>
+                        <div style="font-size:20px; font-weight:700;">${formatCOP(res.total_visitas > 0 ? totalInvertido / res.total_visitas : 0)}</div>
+                    </div>
+                </div>
+
+                <h3 style="font-size:16px; margin-bottom:15px;">Listado de Pedidos</h3>
+                <div class="table-container" style="max-height:400px; overflow-y:auto;">
                     <table class="glass-table">
                         <thead>
                             <tr>
-                                <th>Pedido</th>
                                 <th>Fecha</th>
                                 <th>Mesa</th>
-                                <th>Items</th>
                                 <th>Total</th>
                             </tr>
                         </thead>
                         <tbody>
                             ${res.historial.map(p => `
                                 <tr>
-                                    <td>#${p.pedido_id}</td>
                                     <td>${new Date(p.fecha).toLocaleDateString()}</td>
-                                    <td>${p.mesa_id}</td>
-                                    <td style="font-size:12px;">${p.items_consumidos.map(i => `${i.cantidad}x Plato ${i.plato_id}`).join(', ')}</td>
-                                    <td style="font-weight:600;">${formatCOP(p.total)}</td>
+                                    <td>Mesa ${p.mesa_id}</td>
+                                    <td style="font-weight:600; color:var(--accent);">${formatCOP(p.total)}</td>
                                 </tr>
                             `).join('')}
                         </tbody>
                     </table>
                 </div>
             `;
+        } catch (e) {
+            resultDiv.innerHTML = `<div style="color:var(--danger); padding:20px;">Error: ${e.message}</div>`;
+        }
+    };
+
+    // 6. COCINA
+    async function loadCocina() {
+        const ordenes = await fetchAPI('/cocina/ordenes');
+        const grid = document.getElementById('cocinaGrid');
+        grid.innerHTML = '';
+
+        if (ordenes.length === 0) {
+            grid.innerHTML = '<p style="color:var(--text-muted); grid-column:1/-1; text-align:center;">No hay órdenes pendientes en este momento. 🍵</p>';
+            return;
+        }
+
+        ordenes.forEach(o => {
+            const card = document.createElement('div');
+            card.className = 'cocina-card glass-panel';
+            card.innerHTML = `
+                <h3>Pedido #${o.pedido_id} <span>Mesa ${o.mesa_id}</span></h3>
+                <div class="item-info">${o.cantidad}x ${o.plato}</div>
+                <div class="wait-time"><i class="ph ph-clock"></i> Espera: ${o.tiempo_espera}</div>
+                <button class="btn-ready" onclick="window.marcarOrdenLista(${o.id})">
+                    <i class="ph ph-check-circle"></i> Marcar como Listo
+                </button>
+            `;
+            grid.appendChild(card);
+        });
+    }
+
+    window.marcarOrdenLista = async (id) => {
+        try {
+            await fetchAPI(`/cocina/ordenes/${id}/listo`, { method: 'PATCH' });
+            loadCocina(); // Recargar lista
         } catch (e) {
             alert(e.message);
         }
@@ -543,17 +669,18 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!isAdmin) {
         if (isMesero) defaultView = 'view-pedidos';
         else if (isMaitre) defaultView = 'view-mesas';
-        else defaultView = ''; // Cocinero puede no tener vistas principales aquí
+        else if (isCocinero) defaultView = 'view-cocina';
+        else defaultView = '';
     }
 
     if (defaultView) {
         document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
         const defaultBtn = document.querySelector(`[data-target="${defaultView}"]`);
         if (defaultBtn) defaultBtn.classList.add('active');
-        
+
         document.querySelectorAll('.view-section').forEach(sec => sec.classList.remove('active'));
         document.getElementById(defaultView).classList.add('active');
-        
+
         loadDataForView(defaultView);
     }
 });

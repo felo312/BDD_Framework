@@ -141,7 +141,7 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
     access_token_expires = datetime.timedelta(minutes=security.ACCESS_TOKEN_EXPIRE_MINUTES)
     roles = [r.nombre for r in user.roles]
     access_token = security.create_access_token(
-        data={"sub": user.nombre, "roles": roles}, expires_delta=access_token_expires
+        data={"sub": user.nombre, "id": user.id, "roles": roles}, expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
@@ -149,7 +149,7 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
 # GESTIÓN DE MESAS
 # ==========================================
 @app.post("/mesas/", response_model=schemas.Mesa)
-def create_mesa(mesa: schemas.MesaCreate, db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(security.RoleChecker(["Maitre"]))):
+def create_mesa(mesa: schemas.MesaCreate, db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(security.RoleChecker(["Administrador", "Maitre"]))):
     db_mesa = models.Mesa(**mesa.dict())
     db.add(db_mesa)
     db.commit()
@@ -161,7 +161,7 @@ def get_mesas(db: Session = Depends(database.get_db)):
     return db.query(models.Mesa).order_by(models.Mesa.id).all()
 
 @app.delete("/mesas/{mesa_id}")
-def delete_mesa(mesa_id: int, db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(security.RoleChecker(["Maitre"]))):
+def delete_mesa(mesa_id: int, db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(security.RoleChecker(["Administrador", "Maitre"]))):
     db_mesa = db.query(models.Mesa).filter(models.Mesa.id == mesa_id).first()
     if not db_mesa:
         raise HTTPException(status_code=404, detail="Mesa no encontrada")
@@ -188,7 +188,7 @@ def update_mesa_estado(mesa_id: int, estado: str, db: Session = Depends(database
     return {"status": "ok", "mesa_id": mesa_id, "nuevo_estado": estado}
 
 @app.put("/mesas/{mesa_id}", response_model=schemas.Mesa)
-def update_mesa(mesa_id: int, mesa_data: schemas.MesaCreate, db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(security.RoleChecker(["Maitre"]))):
+def update_mesa(mesa_id: int, mesa_data: schemas.MesaCreate, db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(security.RoleChecker(["Administrador", "Maitre"]))):
     db_mesa = db.query(models.Mesa).filter(models.Mesa.id == mesa_id).first()
     if not db_mesa:
         raise HTTPException(status_code=404, detail="Mesa no encontrada")
@@ -365,6 +365,70 @@ def reportes_top_platos(db: Session = Depends(database.get_db), current_user: mo
      .limit(5).all()
      
     return [{"plato": t.nombre, "cantidad": int(t.total_pedido)} for t in top]
+
+@app.post("/clientes-rapido")
+def create_cliente_rapido(nombre: str, apellido: str, db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(security.RoleChecker(["Mesero", "Administrador"]))):
+    # Asegurar que existe el rol Cliente
+    rol_cliente = db.query(models.Rol).filter(models.Rol.nombre == "Cliente").first()
+    if not rol_cliente:
+        rol_cliente = models.Rol(nombre="Cliente")
+        db.add(rol_cliente)
+        db.commit()
+        db.refresh(rol_cliente)
+
+    nuevo_nombre = f"{nombre} {apellido}"
+    db_user = models.Usuario(nombre=nuevo_nombre, clave="cliente_no_pass") # No necesitan pass para BI
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    
+    db_actuacion = models.Actuacion(rol_id=rol_cliente.id, usuario_id=db_user.id)
+    db.add(db_actuacion)
+    db.commit()
+    
+    return {"id": db_user.id, "nombre": db_user.nombre}
+
+# ==========================================
+# MÓDULO DE COCINA
+# ==========================================
+@app.get("/cocina/ordenes")
+def get_cocina_ordenes(db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(security.RoleChecker(["Cocinero", "Administrador"]))):
+    # Traemos órdenes que no estén entregadas ni listas (o solo solicitado/en preparación)
+    ordenes = db.query(models.Orden).filter(models.Orden.estado.in_(["solicitado", "en preparación"])).order_by(models.Orden.solicitado.asc()).all()
+    resultado = []
+    for o in ordenes:
+        plato = db.query(models.Plato).filter(models.Plato.id == o.plato_id).first()
+        pedido = db.query(models.Pedido).filter(models.Pedido.id == o.pedido_id).first()
+        resultado.append({
+            "id": o.id,
+            "pedido_id": o.pedido_id,
+            "plato": plato.nombre if plato else "Plato",
+            "cantidad": o.cantidad,
+            "mesa_id": pedido.mesa_id if pedido else 0,
+            "estado": o.estado,
+            "tiempo_espera": str(datetime.datetime.utcnow() - o.solicitado).split('.')[0]
+        })
+    return resultado
+
+@app.patch("/cocina/ordenes/{orden_id}/listo")
+def marcar_orden_lista(orden_id: int, db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(security.RoleChecker(["Cocinero", "Administrador"]))):
+    db_orden = db.query(models.Orden).filter(models.Orden.id == orden_id).first()
+    if not db_orden:
+        raise HTTPException(status_code=404, detail="Orden no encontrada")
+    
+    db_orden.estado = "listo"
+    db.commit()
+    return {"status": "ok", "message": "Plato listo para servir"}
+
+@app.get("/clientes/")
+def get_clientes(db: Session = Depends(database.get_db), current_user: models.Usuario = Depends(security.RoleChecker(["Mesero", "Maitre", "Administrador"]))):
+    rol_cliente = db.query(models.Rol).filter(models.Rol.nombre == "Cliente").first()
+    if not rol_cliente:
+        return []
+    
+    # Usuarios que tienen el rol de Cliente
+    clientes = db.query(models.Usuario).join(models.Actuacion).filter(models.Actuacion.rol_id == rol_cliente.id).all()
+    return [{"id": c.id, "nombre": c.nombre} for c in clientes]
 
 # ==========================================
 # HISTORIAL DE CLIENTES

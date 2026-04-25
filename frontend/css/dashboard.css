@@ -387,3 +387,52 @@
     justify-content: flex-end;
     gap: 10px;
 }
+
+/* Cocina View Styles */
+.cocina-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+}
+
+.cocina-card {
+    padding: 20px;
+    border-radius: 16px;
+    position: relative;
+    border: 1px solid var(--glass-border);
+}
+
+.cocina-card h3 {
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: space-between;
+}
+
+.cocina-card .item-info {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 5px;
+    color: var(--primary);
+}
+
+.cocina-card .wait-time {
+    font-size: 13px;
+    color: var(--warning);
+    margin-bottom: 15px;
+}
+
+.btn-ready {
+    width: 100%;
+    padding: 12px;
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.2s;
+}
+
+.btn-ready:hover {
+    opacity: 0.9;
+}

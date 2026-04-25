@@ -8,7 +8,7 @@ const API_URL = 'http://127.0.0.1:8000';
  */
 async function fetchAPI(endpoint, options = {}) {
     const token = localStorage.getItem('access_token');
-    
+
     const headers = {
         ...options.headers
     };
@@ -22,12 +22,12 @@ async function fetchAPI(endpoint, options = {}) {
             ...options,
             headers
         });
-        
+
         if (!response.ok) {
             const errorData = await response.json().catch(() => null);
             throw new Error(errorData?.detail || 'Error en la petición');
         }
-        
+
         return await response.json();
     } catch (error) {
         console.error('API Error:', error);
