@@ -5,7 +5,8 @@
 ## 🚀 Tecnologías Utilizadas
 
 *   **Backend**: Python con **FastAPI** (Rápido, moderno y asíncrono).
-*   **Base de Datos**: **SQLAlchemy** con SQLite (Persistencia garantizada).
+*   **Base de Datos**: **SQLAlchemy** con **PostgreSQL** (Motor robusto y relacional).
+*   **Driver**: `psycopg2` para la conexión con el servidor de base de datos.
 *   **Frontend**: HTML5, CSS3 (Vanilla) y JavaScript (Vanilla) con estética **Glassmorphism**.
 *   **Seguridad**: Autenticación **JWT** (JSON Web Tokens) y cifrado de contraseñas.
 
